@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package vest;
+
+// What a vest sends every 20 s: one array per metric with one sample per second.
+// Every value after the first is the delta from the previous one, in integer units (value = int / scale).
+message SeriesPacket {
+  string device_id = 1;
+  sint32 tz_offset_min = 2;      // vest local timezone, +180 for Kyiv in summer
+  uint32 seq = 3;                // packet number, lets the server drop duplicates after a resend
+  uint32 start_utc = 4;          // time of the first sample, seconds since 1970-01-01 UTC
+  uint32 step_s = 5;             // 1 = one sample per second
+  repeated Series series = 6;
+}
+
+message Series {
+  MetricId id = 1;
+  uint32 scale = 2;
+  repeated sint32 deltas = 3;
+}
+
+// Metric registry. A number is never reused: a removed metric keeps its number reserved.
+enum MetricId {
+  METRIC_UNKNOWN = 0;
+  HEART_RATE = 1;
+  RESP_RATE = 2;
+  TEMPERATURE = 3;
+  ACTIVITY = 4;
+  STEPS = 5;
+  BATTERY = 6;
+}

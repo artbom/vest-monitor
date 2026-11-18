@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vest monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Control room / ICU monitor: phosphor readouts on a dark grid. Projector-first, dark only. */
+:root {
+  --bg: #0d1117; --panel: #141a22; --panel-2: #19202a; --ink: #e8eef6; --ink-2: #a9b4c4; --ink-3: #66748a;
+  --rule: #253040; --grid: rgba(140, 160, 190, .07);
+  --accent: #6aa8e8; --ok: #5cc48c; --warn: #e2a64a; --bad: #e0606f; --off: #3a4556;
+  --s1: #6aa8e8; --s2: #5cc48c; --s3: #e2a64a; --s4: #a593e0;
+  --hr: #e0606f; --temp: #e2a64a; --resp: #6aa8e8; --band: rgba(224, 96, 111, .14);
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace; --font: "Manrope", system-ui, sans-serif; --display: "Unbounded", "Manrope", sans-serif;
+  --glow-ok: none; --glow-bad: none; --glow-acc: none;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body { margin: 0; color: var(--ink); font: 14px/1.45 var(--font); background: var(--bg); min-height: 100vh; }
+
+/* ---- header with live ECG trace ---- */
+header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 22px; padding: 12px 24px; flex-wrap: wrap;
+  background: rgba(13, 17, 23, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); overflow: hidden; }
+header h1 { font: 700 18px/1 var(--display); margin: 0; letter-spacing: .02em; display: flex; align-items: center; gap: 10px; }
+header h1 small { font: 500 11px/1 var(--mono); color: var(--accent); letter-spacing: .18em; text-transform: uppercase; padding: 4px 7px; border: 1px solid var(--rule); border-radius: 4px; }
+.ecg { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; pointer-events: none; opacity: .18; }
+.ecg path { fill: none; stroke: var(--ok); stroke-width: 1.6; stroke-dasharray: 260 1400; animation: ecg 3.2s linear infinite; }
+@keyframes ecg { from { stroke-dashoffset: 1660; } to { stroke-dashoffset: 0; } }
+.hstat { display: flex; flex-direction: column; gap: 2px; position: relative; }
+.hstat .k { font: 500 10px/1 var(--mono); color: var(--ink-3); letter-spacing: .14em; text-transform: uppercase; }
+.hstat .v { font: 600 17px/1.1 var(--mono); }
+.hstat .v.big { font-size: 24px; color: var(--ink); }
+.muted { color: var(--ink-3); } .mono { font-family: var(--mono); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--off); margin-right: 7px; vertical-align: middle; }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 0 rgba(57,245,160,.6); animation: pulse 1.6s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(57,245,160,.55); } 100% { box-shadow: 0 0 0 10px rgba(57,245,160,0); } }
+
+main { display: grid; gap: 16px; padding: 18px 24px 48px; max-width: 1720px; margin: 0 auto; }
+main > * { animation: rise .6s cubic-bezier(.2,.7,.2,1) both; }
+main > *:nth-child(2) { animation-delay: .06s; } main > *:nth-child(3) { animation-delay: .12s; } main > *:nth-child(4) { animation-delay: .18s; }
+main > *:nth-child(5) { animation-delay: .24s; } main > *:nth-child(6) { animation-delay: .3s; } main > *:nth-child(7) { animation-delay: .36s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+.card { position: relative; background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 16px 18px; min-width: 0;
+  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset; }
+
+.card h2 { font: 500 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .16em; color: var(--ink-2); margin: 0 0 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.card h2 .muted { font-family: var(--font); font-size: 12px; letter-spacing: 0; text-transform: none; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cols { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+.cols3 { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 1100px) { .cols, .cols3 { grid-template-columns: 1fr; } }
+button { padding: 6px 12px; border: 1px solid var(--rule); border-radius: 8px; background: rgba(255,255,255,.03); color: var(--ink); font: 600 12.5px var(--font); cursor: pointer; white-space: nowrap; transition: .15s; }
+button:hover { border-color: rgba(54,214,255,.55); background: rgba(54,214,255,.08); }
+button.active { background: rgba(54,214,255,.16); border-color: var(--accent); color: #dff8ff; box-shadow: var(--glow-acc); }
+button.danger { color: var(--bad); }
+button.danger.active, button.bad { background: rgba(255,77,94,.18); border-color: var(--bad); color: #ffd9dd; box-shadow: var(--glow-bad); }
+button:disabled { opacity: .5; cursor: wait; }
+input[type=number] { width: 92px; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 8px; background: rgba(0,0,0,.35); color: var(--ink); font: 500 14px var(--mono); }
+input[type=range] { width: 240px; accent-color: var(--accent); }
+
+/* ---- pipeline: monitor modules ---- */
+.pipe { display: grid; grid-template-columns: 1.1fr 46px 1fr 46px 1.1fr 46px 1.35fr 46px 1.15fr 46px 1.2fr; grid-template-rows: auto auto; align-items: center; row-gap: 16px; }
+@media (max-width: 1250px) { .pipe { grid-template-columns: 1fr; } .conn { display: none; } .pipe > .node { grid-column: auto !important; grid-row: auto !important; } }
+.node { position: relative; border: 1px solid var(--rule); border-radius: 12px; padding: 11px 13px 10px; background: var(--panel-2); min-height: 84px; transition: .3s; overflow: hidden; }
+.node::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px; background: var(--ok); box-shadow: var(--glow-ok); }
+.node.warn::before { background: var(--warn); }
+.node.bad { border-color: rgba(224,96,111,.45); background: #241a1f; } .node.bad::before { background: var(--bad); box-shadow: var(--glow-bad); }
+.node.off { opacity: .5; } .node.off::before { background: var(--off); box-shadow: none; }
+@keyframes alarm { 50% { border-color: rgba(224,96,111,.7); } }
+.node .t { font: 600 11px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.node .big { font: 600 22px/1.3 var(--mono); margin-top: 4px; color: var(--ink); }
+
+.node.bad .big { color: #ffb3bb; }
+.node .sub { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+.span2 { grid-row: 1 / span 2; }
+.pw { border: 0; background: transparent; padding: 0 2px; font-size: 15px; line-height: 1; color: var(--ok); text-shadow: var(--glow-ok); }
+.pw:hover { background: transparent; color: #fff; }
+.pw.offp { color: var(--bad); text-shadow: var(--glow-bad); }
+.brokers { display: flex; gap: 6px; margin: 6px 0 2px; }
+.broker { flex: 1; border: 1px solid rgba(57,245,160,.35); border-radius: 7px; padding: 4px 0; text-align: center; font: 600 12px var(--mono); cursor: pointer; background: rgba(57,245,160,.10); color: var(--ok); transition: .15s; }
+.broker:hover { background: rgba(57,245,160,.2); }
+.broker.down { background: rgba(255,77,94,.16); border-color: rgba(255,77,94,.5); color: var(--bad); text-decoration: line-through; }
+.conn { position: relative; height: 100%; display: grid; align-items: center; }
+.conn .line { height: 2px; border-radius: 2px; background: var(--off); opacity: .5; }
+.conn .line.flow { opacity: 1; background: repeating-linear-gradient(90deg, var(--accent) 0 8px, transparent 8px 16px); background-size: 16px 2px; animation: flow linear infinite; }
+@keyframes flow { to { background-position: 16px 0; } }
+
+/* ---- SLO tiles: vital-sign readouts ---- */
+.slos { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+@media (max-width: 1250px) { .slos { grid-template-columns: repeat(3, 1fr); } }
+.slo { position: relative; border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; background: var(--panel); overflow: hidden; }
+.slo { border-top: 3px solid var(--off); } .slo.ok { border-top-color: var(--ok); } .slo.warn { border-top-color: var(--warn); } .slo.bad { border-top-color: var(--bad); }
+
+.slo .k { font: 500 10.5px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--ink-3); }
+.slo .v { font: 600 28px/1.25 var(--mono); margin: 4px 0 2px; }
+.slo .v { color: var(--ink); } .slo.bad .v { color: var(--bad); }
+.slo .goal { font-size: 11.5px; color: var(--ink-3); }
+
+.chart { position: relative; height: 220px; }
+
+/* ---- kafka partitions ---- */
+.parts { display: grid; grid-template-columns: repeat(12, 1fr); gap: 8px; }
+@media (max-width: 900px) { .parts { grid-template-columns: repeat(6, 1fr); } }
+.part { border: 1px solid var(--rule); border-radius: 10px; padding: 8px; background: rgba(0,0,0,.25); font-size: 11px; }
+.part.under { border-color: rgba(255,176,32,.55); } .part.dead { border-color: rgba(255,77,94,.6); background: rgba(255,77,94,.10); }
+.part .pid { font: 600 12px var(--mono); display: flex; justify-content: space-between; }
+.isr { display: flex; gap: 3px; margin: 6px 0; }
+.isr i { flex: 1; height: 5px; border-radius: 3px; background: var(--off); }
+.isr i.in { background: var(--ok); } .isr i.lead { background: var(--accent); }
+.bar { height: 34px; display: flex; align-items: end; gap: 3px; }
+.bar b { flex: 1; background: linear-gradient(0deg, rgba(57,245,160,.25), var(--s2)); border-radius: 3px 3px 0 0; min-height: 2px; transition: height .4s; }
+.bar b.d { background: linear-gradient(0deg, rgba(255,176,32,.25), var(--s3)); }
+
+/* ---- simulators ---- */
+.simgrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+.sim { border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; background: rgba(0,0,0,.25); display: grid; gap: 10px; }
+.sim { grid-template-columns: 1fr minmax(280px, auto); column-gap: 28px; }
+.sim > :first-child { grid-column: 1 / -1; }
+.sim > :not(:first-child):not(dl) { grid-column: 1; }
+.sim > dl { grid-column: 2; grid-row: 2 / span 1; align-self: center; padding-left: 24px; border-left: 1px solid var(--rule); font-size: 14px; }
+.sim .name { font: 700 14px var(--display); letter-spacing: .02em; }
+.presets button { padding: 5px 9px; font-family: var(--mono); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 13px; }
+.kv dt { color: var(--ink-3); } .kv dd { margin: 0; font-family: var(--mono); }
+
+/* ---- vests ---- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 6px; max-height: 300px; overflow: auto; padding-right: 4px; }
+.vest { border: 1px solid var(--rule); border-radius: 9px; padding: 6px 8px; cursor: pointer; font-size: 11.5px; background: rgba(0,0,0,.28); border-left: 3px solid var(--ok); transition: .15s; }
+.vest:hover { border-color: rgba(54,214,255,.5); }
+.vest.sel { outline: 1px solid var(--accent); box-shadow: var(--glow-acc); } .vest.stale { border-left-color: var(--off); opacity: .55; }
+.vest.alarm { border-left-color: var(--bad); background: rgba(224,96,111,.10); }
+.vest .id { font: 600 11.5px var(--mono); color: var(--ink-2); } .vest .hr { font: 600 15px var(--mono); color: var(--ink); }
+.vest.alarm .hr { color: var(--bad); }
+.badge { font: 600 10.5px var(--mono); padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.06); color: var(--ink-2); letter-spacing: .04em; }
+.badge.bad { background: rgba(255,77,94,.2); color: #ffc2c8; border: 1px solid rgba(255,77,94,.5); } .badge.ok { background: rgba(57,245,160,.14); color: var(--ok); border: 1px solid rgba(57,245,160,.4); }
+.alerts { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.alert { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 9px; background: rgba(0,0,0,.28); border: 1px solid var(--rule); font-size: 13px; cursor: pointer; }
+.alert.new { animation: flash 2.4s ease-out; }
+@keyframes flash { from { background: rgba(255,77,94,.35); border-color: var(--bad); } }
+.toast { position: fixed; right: 24px; bottom: 24px; background: #2a1d22; color: var(--ink); border-left: 4px solid var(--bad) !important; padding: 14px 18px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); opacity: 0; transform: translateY(10px) scale(.98); transition: .3s; pointer-events: none; z-index: 60; max-width: 440px; font-size: 14px; border: 1px solid rgba(255,255,255,.25); }
+.toast.show { opacity: 1; transform: none; }
+.result { font-size: 13px; padding: 9px 12px; border-radius: 9px; background: rgba(0,0,0,.3); border: 1px solid var(--rule); }
+.result.ok { border-left: 3px solid var(--ok); } .result.bad { border-left: 3px solid var(--bad); }
+
+/* ---- GDPR saga ---- */
+.saga { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+.saga span { padding: 6px 8px; border: 1px solid var(--rule); border-radius: 8px; font: 500 11.5px var(--mono); color: var(--ink-3); background: rgba(0,0,0,.2); }
+.saga span.done { color: var(--ok); border-color: rgba(92,196,140,.45); }
+.saga span.cur { color: var(--accent); border-color: var(--accent); }
+.saga span.wait { color: var(--warn); border-color: rgba(226,166,74,.6); }
+a.ext { color: var(--accent); font-size: 12.5px; text-decoration: none; border-bottom: 1px dotted rgba(106,168,232,.5); }
+a.ext:hover { color: var(--ink); }
+
+/* ---- demo script ---- */
+.steps { display: grid; gap: 8px; counter-reset: step; }
+.step { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: start; padding: 10px 12px; border-radius: 11px; background: rgba(0,0,0,.25); border: 1px solid var(--rule); transition: .2s; }
+.step:hover { border-color: rgba(54,214,255,.35); }
+.step::before { counter-increment: step; content: counter(step, decimal-leading-zero); font: 600 12px var(--mono); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(54,214,255,.1); color: var(--accent); border: 1px solid rgba(54,214,255,.35); }
+.step.done::before { background: rgba(57,245,160,.16); color: var(--ok); border-color: rgba(57,245,160,.5); content: "✓"; }
+.step b { display: block; font-weight: 700; } .step span { color: var(--ink-3); font-size: 13px; }
+details > summary { cursor: pointer; list-style: none; } details > summary::-webkit-details-marker { display: none; }
+::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: rgba(120,150,190,.25); border-radius: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <svg class="ecg" viewBox="0 0 1600 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0 40 H180 l12 -4 l10 4 H300 l8 -26 l10 46 l8 -30 l6 10 H520 l12 -5 l10 5 H700 l8 -26 l10 46 l8 -30 l6 10 H920 l12 -4 l10 4 H1100 l8 -26 l10 46 l8 -30 l6 10 H1320 l12 -5 l10 5 H1600"/></svg>
+  <h1>Vest monitor <small>control room</small></h1>
+  <div class="hstat"><span class="k">звʼязок</span><span class="v" style="font-size:14px"><span id="conn" class="dot"></span><span id="connText" class="muted">підключення…</span></span></div>
+  <div class="hstat"><span class="k">пакетів / с</span><span class="v big" id="hdrLoad">—</span></div>
+  <div class="hstat"><span class="k">жилетів</span><span class="v" id="hdrVests">—</span></div>
+  <div class="hstat"><span class="k">симульований час</span><span class="v" id="simTime" style="font-size:14px">—</span></div>
+  <span style="flex:1"></span>
+  <button id="resetAll" title="Усі жилети в норму, мережа є, лічильники з нуля" style="position:relative">↺ скинути демо</button>
+</header>
+
+<main>
+  <!-- ======================= LOAD ======================= -->
+  <section class="card">
+    <h2>Навантаження <span class="muted" style="text-transform:none;letter-spacing:0">кожен симулятор — окремий парк жилетів: цей ноутбук, Raspberry Pi…</span></h2>
+    <div id="sims" class="simgrid"></div>
+  </section>
+
+  <!-- ======================= PIPELINE ======================= -->
+  <section class="card">
+    <h2>Конвеєр наживо <span class="muted" style="text-transform:none;letter-spacing:0">⏻ на компоненті — вимкнути / увімкнути (справжній docker stop)</span></h2>
+    <div class="pipe" id="pipe">
+      <div class="node span2" id="nVests" style="grid-column:1"></div>
+      <div class="conn span2" style="grid-column:2;grid-row:1/span 2"><div class="line" id="e1"></div></div>
+      <div class="node span2" id="nMqtt" style="grid-column:3"></div>
+      <div class="conn" style="grid-column:4;grid-row:1/span 2"><div class="line" id="e2"></div></div>
+      <div class="node span2" id="nIngest" style="grid-column:5"></div>
+      <div class="conn" style="grid-column:6;grid-row:1/span 2"><div class="line" id="e3"></div></div>
+      <div class="node span2" id="nKafka" style="grid-column:7"></div>
+      <div class="conn" style="grid-column:8;grid-row:1"><div class="line" id="e4"></div></div>
+      <div class="conn" style="grid-column:8;grid-row:2"><div class="line" id="e5"></div></div>
+      <div class="node" id="nWriter" style="grid-column:9;grid-row:1"></div>
+      <div class="node" id="nDetection" style="grid-column:9;grid-row:2"></div>
+      <div class="conn" style="grid-column:10;grid-row:1"><div class="line" id="e6"></div></div>
+      <div class="conn" style="grid-column:10;grid-row:2"><div class="line" id="e7"></div></div>
+      <div class="node" id="nPg" style="grid-column:11;grid-row:1"></div>
+      <div class="node" id="nAlerts" style="grid-column:11;grid-row:2"></div>
+    </div>
+  </section>
+
+  <!-- ======================= SLO ======================= -->
+  <section class="slos" id="slos"></section>
+
+  <!-- ======================= CHARTS ======================= -->
+  <section class="cols3">
+    <div class="card"><h2>Пропускна здатність, пакетів/с</h2><div class="chart"><canvas id="cTput"></canvas></div></div>
+    <div class="card"><h2>Відставання черги (consumer lag), повідомлень</h2><div class="chart"><canvas id="cLag"></canvas></div></div>
+    <div class="card"><h2>Затримки p99, мс</h2><div class="chart"><canvas id="cLat"></canvas></div></div>
+  </section>
+
+  <!-- ======================= KAFKA PARTITIONS ======================= -->
+  <section class="card">
+    <h2>Kafka · топік telemetry · 12 партицій × 3 репліки, min.insync.replicas = 2
+      <span class="row" style="text-transform:none;letter-spacing:0;font-size:12px"><span><i class="dot" style="background:var(--accent)"></i>лідер</span><span><i class="dot" style="background:var(--ok)"></i>в ISR</span><span><i class="dot" style="background:var(--s2);border-radius:2px"></i>lag writer</span><span><i class="dot" style="background:var(--s3);border-radius:2px"></i>lag detection</span></span></h2>
+    <div class="parts" id="parts"></div>
+  </section>
+
+  <!-- ======================= VESTS ======================= -->
+  <section class="cols">
+    <div class="card">
+      <h2>Жилети <span class="muted" id="vestCount"></span></h2>
+      <div id="grid" class="grid"></div>
+      <h2 style="margin-top:14px">Тривоги</h2>
+      <div id="alerts" class="alerts"><span class="muted">поки немає</span></div>
+    </div>
+    <div class="card">
+      <h2><span>Жилет <span id="selId" class="mono" style="color:var(--ink)">—</span> <span id="selPet" style="text-transform:none;letter-spacing:0"></span></span><span id="scenarioButtons" class="row" style="text-transform:none;letter-spacing:0"></span></h2>
+      <div class="cols" style="gap:10px">
+        <div><div class="muted">Пульс наживо (посекундно, з Kafka)</div><div class="chart" style="height:170px"><canvas id="cHr"></canvas></div></div>
+        <div><div class="muted">Температура наживо</div><div class="chart" style="height:170px"><canvas id="cTemp"></canvas></div></div>
+      </div>
+      <div class="row" style="justify-content:space-between;margin-top:8px"><span class="muted">Пульс, історія з репліки: avg і min–max</span><span id="rangeButtons" class="row"></span></div>
+      <div class="chart" style="height:150px"><canvas id="cHist"></canvas></div>
+      <div class="muted" id="histSource" style="font-size:12px"></div>
+      <h2 style="margin-top:12px">Профіль тварини · PC/EC <span class="muted" style="text-transform:none;letter-spacing:0">запис чекає, поки синхронна репліка застосує зміну</span></h2>
+      <div class="row">
+        <label>поріг пульсу <input id="pHr" type="number" min="60" max="300"></label>
+        <label>поріг температури <input id="pTemp" type="number" min="36" max="43" step="0.1"></label>
+        <button id="pSave">Зберегти</button>
+      </div>
+      <dl class="kv" style="margin-top:8px"><dt>у базі</dt><dd id="pDb">—</dd><dt>копія в Redis (detection)</dt><dd id="pCache">—</dd></dl>
+      <div id="pResult" class="result" style="margin-top:8px;display:none"></div>
+      <h2 style="margin-top:14px">Видалення за GDPR · сага <span class="muted">оркестратор Temporal, кроки виконує saga-worker; без компенсацій, лише вперед</span></h2>
+      <div class="row">
+        <span id="gOwner" class="muted">—</span>
+        <button id="gDelete" class="danger">видалити власника (GDPR)</button>
+        <span class="row" style="gap:4px"><span class="muted">saga-worker</span><span id="gPower"></span></span>
+        <span style="flex:1"></span>
+        <a id="gUi" class="ext" href="http://localhost:18233/namespaces/default/workflows" target="_blank" rel="noopener">Temporal UI ↗</a>
+      </div>
+      <div class="saga" id="gSteps"></div>
+      <div id="gResult" class="result" style="margin-top:8px;display:none"></div>
+    </div>
+  </section>
+
+  <!-- ======================= DEMO SCRIPT ======================= -->
+  <section class="card">
+    <details open>
+      <summary><h2>Сценарій демо <span class="muted" style="text-transform:none;letter-spacing:0">натискай по черзі, розповідай, що відбувається на схемі вище</span></h2></summary>
+      <div class="steps" id="steps"></div>
+    </details>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => n == null || Number.isNaN(n) ? '—' : Number(n).toLocaleString('uk-UA', { maximumFractionDigits: 1 });
+const kfmt = n => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? (n / 1e3).toFixed(0) + 'k' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : fmt(Math.round(n));
+const bytes = n => n == null ? '—' : n > 1e9 ? (n / 1e9).toFixed(2) + ' ГБ' : n > 1e6 ? (n / 1e6).toFixed(1) + ' МБ' : (n / 1e3).toFixed(0) + ' КБ';
+const hhmmss = s => new Date(s * 1000).toLocaleTimeString('uk-UA');
+const api = (path, body, method) => fetch(path, body ? { method: method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : method ? { method } : {})
+  .then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, attrs); e.append(...kids.filter(k => k != null)); return e; };
+
+const LABELS = { normal: 'норма', tachycardia: 'тахікардія', fever: 'гарячка', low_battery: 'низький заряд', offline: 'офлайн' };
+const ALERT_LABELS = { tachycardia: 'тахікардія', fever: 'гарячка', low_battery: 'низький заряд' };
+const PRESETS = [50, 1000, 5000, 10000, 20000];
+const SPEEDS = [1, 5, 20];
+const RANGES = [['1 год', 1], ['24 год', 24], ['7 днів', 168]];
+const WINDOW_MS = 5 * 60_000;
+
+let selected = (() => { try { return localStorage.getItem('vest') || 'VST-0007'; } catch { return 'VST-0007'; } })();
+let simulated = Date.now() / 1000, rangeHours = 1, scenarios = ['normal'], es, ops = {};
+const stats = {};
+
+// ======================= charts =======================
+Chart.defaults.font.family = css('--mono'); Chart.defaults.font.size = 11; Chart.defaults.color = css('--ink-3'); Chart.defaults.borderColor = css('--grid');
+const timeX = { type: 'linear', ticks: { callback: v => new Date(v).toLocaleTimeString('uk-UA'), maxTicksLimit: 5 }, grid: { color: css('--grid') } };
+function series(id, sets, y = {}) {
+  return new Chart($(id), {
+    type: 'line',
+    data: { datasets: sets.map(([label, color]) => ({ label, data: [], borderColor: css(color), backgroundColor: css(color), borderWidth: 2, pointRadius: 0, tension: .3, fill: false })) },
+    options: { animation: false, maintainAspectRatio: false, parsing: false, normalized: true, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10 } }, tooltip: { callbacks: { title: i => new Date(i[0].parsed.x).toLocaleTimeString('uk-UA') } } },
+      scales: { x: timeX, y: { beginAtZero: true, grid: { color: css('--grid') }, ...y } } },
+  });
+}
+const cTput = series('cTput', [['жилети надіслали', '--s4'], ['ingest → Kafka', '--s1'], ['writer → БД', '--s2'], ['detection', '--s3']]);
+const cLag = series('cLag', [['writer', '--s2'], ['detection', '--s3']]);
+const cLat = series('cLat', [['ACK ingest (SLO 500)', '--s1'], ['тривога (SLO 1000)', '--bad'], ['до БД', '--s2']]);
+function push(chart, i, x, y) { const d = chart.data.datasets[i].data; d.push({ x, y }); while (d.length && d[0].x < x - WINDOW_MS) d.shift(); }
+
+const liveX = { type: 'linear', ticks: { callback: v => hhmmss(v), maxTicksLimit: 5 }, grid: { color: css('--grid') } };
+function liveChart(id, color) {
+  return new Chart($(id), { type: 'line', data: { datasets: [{ data: [], borderColor: css(color), borderWidth: 1.5, pointRadius: 0 }] },
+    options: { animation: false, maintainAspectRatio: false, parsing: false, plugins: { legend: { display: false } }, scales: { x: liveX, y: { grid: { color: css('--grid') } } } } });
+}
+const cHr = liveChart('cHr', '--hr'), cTemp = liveChart('cTemp', '--temp');
+const cHist = new Chart($('cHist'), {
+  type: 'line',
+  data: { datasets: [
+    { data: [], borderWidth: 0, pointRadius: 0, fill: '+1', backgroundColor: css('--band') },
+    { data: [], borderWidth: 0, pointRadius: 0 },
+    { data: [], borderColor: css('--hr'), borderWidth: 1.5, pointRadius: 0 } ] },
+  options: { animation: false, maintainAspectRatio: false, parsing: false, plugins: { legend: { display: false } },
+    scales: { x: { ...liveX, ticks: { callback: v => rangeHours > 24 ? new Date(v * 1000).toLocaleDateString('uk-UA') : hhmmss(v), maxTicksLimit: 6 } }, y: { grid: { color: css('--grid') } } } },
+});
+
+// ======================= live feed =======================
+function connect() {
+  es?.close();
+  es = new EventSource('/live?vest=' + encodeURIComponent(selected));
+  es.onopen = () => { $('conn').classList.add('on'); $('connText').textContent = 'наживо'; };
+  es.onerror = () => { $('conn').classList.remove('on'); $('connText').textContent = 'перепідключення…'; };
+  es.addEventListener('live', e => {
+    const p = JSON.parse(e.data), col = n => p.metrics.indexOf(n);
+    p.rows.forEach((r, i) => { cHr.data.datasets[0].data.push({ x: p.start + i, y: r[col('heart_rate')] }); cTemp.data.datasets[0].data.push({ x: p.start + i, y: r[col('temperature')] }); });
+    for (const c of [cHr, cTemp]) { const d = c.data.datasets[0].data; while (d.length > 600) d.shift(); c.update(); }
+  });
+  es.addEventListener('alerts', e => addAlert(JSON.parse(e.data), true));
+  es.addEventListener('stats', e => { const s = JSON.parse(e.data); stats[s.service] = s; });
+  es.addEventListener('ops', e => { ops = JSON.parse(e.data); render(); });
+}
+
+// ======================= rendering =======================
+const running = s => !ops.services || (ops.services.find(x => x.service === s)?.running ?? true);
+function power(service) {
+  const on = running(service);
+  const b = el('button', { className: 'pw' + (on ? '' : ' offp'), title: on ? `вимкнути ${service}` : `увімкнути ${service}`, textContent: '⏻' });
+  b.onclick = async ev => { ev.stopPropagation(); b.disabled = true; await api(`/chaos/${service}/${on ? 'stop' : 'start'}`, {}); };
+  return b;
+}
+function node(id, cls, title, service, big, sub, extra) {
+  const n = $(id);
+  n.className = 'node ' + cls + (n.classList.contains('span2') ? ' span2' : '');
+  n.replaceChildren(...[el('div', { className: 't' }, el('span', { textContent: title }), service ? power(service) : null),
+    extra, el('div', { className: 'big', textContent: big }), el('div', { className: 'sub', innerHTML: sub })].filter(Boolean));
+}
+function edge(id, rate) {
+  const e = $(id);
+  e.classList.toggle('flow', rate > 0.05);
+  e.style.animationDuration = rate > 0 ? Math.max(0.15, Math.min(3, 6 / Math.sqrt(rate))) + 's' : '';
+}
+const sum = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0);
+
+function render() {
+  const s = ops.stats ?? {}, sims = ops.sims ?? [], k = ops.kafka ?? { brokers: [], partitions: [] }, pg = ops.pg ?? {};
+  const ing = s.ingest ?? {}, wr = s.writer ?? {}, det = s.detection ?? {};
+  const simStats = sims.map(x => s['sim:' + x.name] ?? {});
+  const sent = sum(simStats, x => x.packets), buffered = sum(sims, x => +x.status.buffered), vests = sum(sims, x => +x.status.vests);
+  const lagW = sum(k.partitions, p => p.lag_writer), lagD = sum(k.partitions, p => p.lag_detection);
+  const underMin = k.partitions.filter(p => p.isr.length < 2).length, under = k.partitions.filter(p => p.isr.length < p.replicas.length).length;
+  const now = ops.at ?? Date.now();
+  if (sims[0]?.status.simulated) { simulated = Date.parse(sims[0].status.simulated) / 1000; $('simTime').textContent = new Date(simulated * 1000).toLocaleString('uk-UA'); }
+  $('hdrLoad').textContent = fmt(Math.round(sent)); $('hdrVests').textContent = kfmt(vests);
+
+  // --- pipeline nodes ---
+  const offline = sum(sims, x => +x.status.offline);
+  node('nVests', buffered > 0 ? 'warn' : 'ok', 'Жилети', null, kfmt(vests),
+    `${fmt(Math.round(sent))} пакетів/с<br>${offline ? `<b style="color:var(--warn)">офлайн ${kfmt(offline)}, у буфері ${kfmt(buffered)}</b>` : 'кожен шле пакет раз на 20 с'}`);
+  const q = ops.mqtt?.queued;
+  node('nMqtt', !running('mosquitto') ? 'bad' : q > 2000 ? 'warn' : 'ok', 'MQTT брокер', 'mosquitto', running('mosquitto') ? `черга ${q == null ? '—' : kfmt(q)}` : 'вимкнено',
+    q > 2000 ? '<b style="color:var(--warn)">тримає повідомлення, поки ingest<br>не підтвердить запис у Kafka</b>' : 'PUBACK жилету (QoS 1),<br>persistent session для ingest');
+  const ingOn = running('ingest');
+  const stalled = (ing.kafka_wait_now ?? 0) > 2000 || ing.kafka_errors > 0;
+  node('nIngest', !ingOn ? 'bad' : stalled ? 'bad' : ing.pending_now > 500 ? 'warn' : 'ok', 'ingest', 'ingest', ingOn ? fmt(ing.accepted ?? 0) + '/с' : 'вимкнено',
+    stalled ? `<b style="color:var(--bad)">Kafka не підтверджує запис ${Math.round((ing.kafka_wait_now ?? 0) / 1000)} с —<br>ingest не дає ACK брокеру</b>` : `ACK p99 ${ing.ack_p99_ms ?? '—'} мс<br>валідація → Kafka acks=all`);
+  const brokers = el('div', { className: 'brokers' }, ...[1, 2, 3].map(id => {
+    const up = running('kafka-' + id);
+    const b = el('div', { className: 'broker' + (up ? '' : ' down'), textContent: `b${id} ⏻`, title: up ? `вимкнути брокер ${id}` : `увімкнути брокер ${id}` });
+    b.onclick = () => api(`/chaos/kafka-${id}/${up ? 'stop' : 'start'}`, {});
+    return b;
+  }));
+  const live = k.brokers.length;
+  const kDown = !k.partitions.length;
+  node('nKafka', kDown || underMin ? 'bad' : under ? 'warn' : 'ok', 'Kafka', null, kDown ? 'недоступна' : `${live}/3 брокери`,
+    kDown ? '<b style="color:var(--bad)">немає кворуму: Kafka відмовляє в записі,<br>щоб не втратити дані (PC черги)</b>'
+      : underMin ? `<b style="color:var(--bad)">${underMin} партицій без кворуму: запис неможливий (PC черги)</b>` : under ? `${under} партицій без повної репліки, але ISR ≥ 2: пишемо далі` : '12 партицій, ISR 3/3', brokers);
+  const wOn = running('writer');
+  node('nWriter', !wOn ? 'bad' : lagW > 500 ? 'warn' : 'ok', 'writer', 'writer', wOn ? kfmt(wr.rows ?? 0) + ' рядків/с' : 'вимкнено',
+    `lag ${kfmt(lagW)} · до БД p99 ${wr.e2e_p99_ms ?? '—'} мс`);
+  const dOn = running('detection');
+  node('nDetection', !dOn ? 'bad' : lagD > 500 ? 'warn' : 'ok', 'detection', 'detection', dOn ? fmt(det.packets ?? 0) + '/с' : 'вимкнено',
+    `lag ${kfmt(lagD)} · кеш ${det.cache_hits + det.cache_misses ? Math.round(100 * det.cache_hits / (det.cache_hits + det.cache_misses)) : '—'}% · Redis ${running('redis') ? 'є' : '<b style="color:var(--bad)">нема</b>'}`,
+    el('div', { className: 'row', style: 'gap:4px;font-size:12px' }, el('span', { className: 'muted', textContent: 'Redis' }), power('redis')));
+  const rep = pg.replica;
+  const repOn = running('pg-replica');
+  node('nPg', !pg.up ? 'bad' : !rep ? 'warn' : 'ok', 'Postgres + Timescale', null, rep ? `sync · ${rep.replay_lag_ms ?? 0} мс` : 'репліки немає',
+    `primary → <b>репліка</b> ${repOn ? '' : '<b style="color:var(--bad)">вимкнена</b>'}<br>${ops.storage?.rows ? kfmt(+ops.storage.rows) + ' рядків · ' + bytes(+ops.storage.bytes) : ''}`,
+    el('div', { className: 'row', style: 'gap:4px;font-size:12px' }, el('span', { className: 'muted', textContent: 'репліка' }), power('pg-replica')));
+  node('nAlerts', (det.alerts ?? 0) > 0 ? 'bad' : 'ok', 'Сповіщення', null, `${ops.storage?.alerts ?? 0}`, `тривог у базі · p99 ${det.alert_p99_ms ?? '—'} мс<br>власнику й ветеринару`);
+  edge('e1', sent); edge('e2', ing.received ?? 0); edge('e3', ing.accepted ?? 0); edge('e4', wr.packets ?? 0); edge('e5', det.packets ?? 0); edge('e6', wr.packets ?? 0); edge('e7', det.alerts ?? 0);
+
+  // --- SLO tiles ---
+  const tiles = [
+    ['ACK пакета, p99', ing.ack_p99_ms, 'мс', 'ціль < 500 мс', v => v == null ? '' : v < 500 ? 'ok' : v < 1000 ? 'warn' : 'bad'],
+    ['Тривога, p99', det.alert_p99_ms, 'мс', 'ціль < 1 с від прийому', v => v == null ? '' : v < 1000 ? 'ok' : 'bad'],
+    ['Читання графіка, p95', ops.api?.read_p95_ms, 'мс', 'ціль < 300 мс (з репліки)', v => v == null ? '' : v < 300 ? 'ok' : 'bad'],
+    ['Ще не в базі', lagW, 'пакетів', `у Kafka чекають writer · прийнято ${kfmt(ops.integrity?.accepted)}`, v => v < 1000 ? 'ok' : 'warn'],
+    ['Kafka ISR', kDown ? '—' : `${12 - underMin}/12`, 'партицій', kDown ? 'кластер недоступний' : 'з кворумом min.insync = 2', () => kDown || underMin ? 'bad' : under ? 'warn' : 'ok'],
+    ['Репліка БД', rep ? rep.sync_state : 'нема', '', rep ? `replay lag ${rep.replay_lag_ms ?? 0} мс` : 'профілі не підтверджуються (PC)', () => rep ? 'ok' : 'bad'],
+  ];
+  $('slos').replaceChildren(...tiles.map(([k, v, u, goal, cls]) => el('div', { className: 'slo ' + cls(v) },
+    el('div', { className: 'k', textContent: k }), el('div', { className: 'v', innerHTML: `${typeof v === 'number' ? kfmt(v) : v ?? '—'} <span style="font-size:12px;color:var(--ink-3)">${u}</span>` }), el('div', { className: 'goal', textContent: goal }))));
+
+  // --- charts ---
+  push(cTput, 0, now, sent); push(cTput, 1, now, ing.accepted ?? 0); push(cTput, 2, now, wr.packets ?? 0); push(cTput, 3, now, det.packets ?? 0);
+  push(cLag, 0, now, lagW); push(cLag, 1, now, lagD);
+  push(cLat, 0, now, ing.ack_p99_ms ?? null); push(cLat, 1, now, det.alert_p99_ms ?? null); push(cLat, 2, now, wr.e2e_p99_ms ?? null);
+  cTput.update(); cLag.update(); cLat.update();
+
+  // --- partitions ---
+  const maxLag = Math.max(1, ...k.partitions.map(p => Math.max(p.lag_writer, p.lag_detection)));
+  $('parts').replaceChildren(...(k.partitions.length ? k.partitions : Array.from({ length: 12 }, (_, id) => ({ id, replicas: [], isr: [], lag_writer: 0, lag_detection: 0, end: 0 }))).map(p =>
+    el('div', { className: 'part' + (p.isr.length < 2 ? ' dead' : p.isr.length < p.replicas.length ? ' under' : ''), title: `лідер b${p.leader}, репліки ${p.replicas}, ISR ${p.isr}` },
+      el('div', { className: 'pid' }, el('span', { textContent: 'P' + p.id }), el('span', { className: 'muted', textContent: kfmt(p.end) })),
+      el('div', { className: 'isr' }, ...[1, 2, 3].map(b => el('i', { className: b === p.leader ? 'lead' : p.isr.includes(b) ? 'in' : '' }))),
+      el('div', { className: 'bar' }, el('b', { style: `height:${100 * p.lag_writer / maxLag}%` }), el('b', { className: 'd', style: `height:${100 * p.lag_detection / maxLag}%` })))));
+
+  renderSims(sims, simStats);
+  $('gPower').replaceChildren(power('saga-worker'));
+  if (gdprPoll) pollSaga();
+}
+
+// ======================= simulators =======================
+// Outage timers live outside the card, which is redrawn every 2 s.
+const outages = {};
+function startOutage(name) {
+  if (outages[name] > Date.now()) return;
+  outages[name] = Date.now() + 60_000;
+  api(`/sims/${name}`, { network: 'down' });
+  setTimeout(() => { delete outages[name]; api(`/sims/${name}`, { network: 'up' }); }, 60_000);
+}
+// Read-only: each fleet (laptop, Raspberry Pi) is controlled from its own panel; the dashboard only watches.
+function renderSims(sims, simStats) {
+  const box = $('sims');
+  if (!sims.length) { box.replaceChildren(el('span', { className: 'muted', textContent: 'жоден парк жилетів не запущений' })); return; }
+  box.replaceChildren(...sims.map((x, i) => {
+    const st = x.status, vests = +st.vests, speed = +st.speed, down = st.network === 'down';
+    return el('div', { className: 'sim' },
+      el('div', { className: 'row', style: 'justify-content:space-between' },
+        el('span', {}, el('span', { className: 'name', textContent: x.name }), el('span', { className: 'muted', textContent: `  ${st.first}…` })),
+        el('span', { className: 'row' },
+          el('span', { className: 'badge ' + (down ? 'bad' : 'ok'), textContent: down ? 'мережі немає' : 'мережа є' }),
+          el('span', { className: 'badge ' + (+st.connected ? 'ok' : 'bad'), textContent: +st.connected ? 'MQTT підключено' : 'немає звʼязку з брокером' }))),
+      el('div', { className: 'row', style: 'gap:28px;align-items:baseline' },
+        el('span', {}, el('span', { className: 'muted', textContent: 'жилетів ' }), el('b', { className: 'mono', style: 'font-size:26px', textContent: fmt(vests) })),
+        el('span', {}, el('span', { className: 'muted', textContent: 'час ×' }), el('b', { className: 'mono', style: 'font-size:18px', textContent: speed })),
+        st.control ? el('a', { href: st.control, target: '_blank', className: 'muted', style: 'font-size:13px', textContent: `пульт парку: ${st.control}` }) : null),
+      el('dl', { className: 'kv' },
+        el('dt', { textContent: 'очікувано' }), el('dd', { textContent: `${fmt(Math.round(vests * speed / 20))} пакетів/с` }),
+        el('dt', { textContent: 'надсилає' }), el('dd', { textContent: `${fmt(Math.round(simStats[i].packets ?? 0))} пакетів/с` }),
+        el('dt', { textContent: 'у буферах' }), el('dd', { textContent: `${kfmt(+st.buffered)} пакетів (до 1000 на жилет)` })));
+  }));
+}
+
+// ======================= vests, profile, alerts =======================
+let vests = [];
+async function refreshVests() {
+  const r = await api('/vests');
+  vests = Array.isArray(r) ? r : Object.values(r).filter(v => v?.device_id);
+  $('vestCount').textContent = vests.length;
+  $('grid').replaceChildren(...vests.map(v => {
+    const stale = !v.latest || simulated - v.latest.ts / 1000 > 60;
+    const alarm = v.scenario !== 'normal' && v.scenario !== 'offline';
+    const e = el('div', { className: 'vest' + (v.device_id === selected ? ' sel' : '') + (stale ? ' stale' : '') + (alarm ? ' alarm' : ''), title: `${v.pet ?? 'без тварини'} · ${v.owner ?? '—'} · ${v.vet ?? '—'}` },
+      el('div', { className: 'id', textContent: v.device_id.replace('VST-', '#') }),
+      el('div', { className: 'hr', textContent: v.latest?.heart_rate ? `♥ ${v.latest.heart_rate}` : '—' }),
+      el('div', { className: 'muted', textContent: v.scenario !== 'normal' ? LABELS[v.scenario] : v.latest ? `${v.latest.temperature}° · ${v.latest.battery}%` : '' }));
+    e.onclick = () => select(v.device_id);
+    return e;
+  }));
+  const cur = vests.find(v => v.device_id === selected);
+  $('selPet').textContent = cur ? `· ${cur.pet ?? 'без тварини'} (${cur.species ?? '—'}) · ${cur.owner ?? '—'} · ${cur.vet ?? '—'}` : '';
+  $('scenarioButtons').replaceChildren(...scenarios.map(s => {
+    const b = el('button', { textContent: LABELS[s], className: (cur?.scenario ?? 'normal') === s ? 'active' + (s !== 'normal' ? ' danger' : '') : '' });
+    b.onclick = async () => { await api(`/sim/vests/${selected}/scenario`, { scenario: s }); refreshVests(); };
+    return b;
+  }));
+}
+
+async function select(id) {
+  selected = id;
+  try { localStorage.setItem('vest', id); } catch {}
+  $('selId').textContent = id;
+  for (const c of [cHr, cTemp]) { c.data.datasets[0].data = []; c.update(); }
+  connect();
+  const from = new Date((simulated - 600) * 1000).toISOString(), to = new Date((simulated + 60) * 1000).toISOString();
+  const [hr, temp] = await Promise.all(['heart_rate', 'temperature'].map(m => api(`/vests/${id}/metrics?metric=${m}&from=${from}&to=${to}`)));
+  for (const [c, d] of [[cHr, hr], [cTemp, temp]]) {
+    if (!d.t) continue;
+    const live = c.data.datasets[0].data;
+    c.data.datasets[0].data = [...d.t.map((t, i) => ({ x: Date.parse(t) / 1000, y: d.avg[i] })).filter(p => !live.length || p.x < live[0].x), ...live];
+    c.update();
+  }
+  gdprOwner = null; clearInterval(gdprPoll); gdprPoll = null; $('gResult').style.display = 'none'; renderSaga(null);
+  loadHistory(); await loadProfile(); refreshVests();
+  // Show the saga only while it runs: a finished one belongs to an owner that the demo reset brought back.
+  const st = gdprOwner ? await api(`/owners/${gdprOwner}/gdpr-delete`) : null;
+  if (st?.workflow?.status === 'RUNNING') { renderSaga(st); gdprPoll = setInterval(pollSaga, 1000); }
+}
+
+async function loadHistory() {
+  const to = new Date((simulated + 60) * 1000), from = new Date(to - rangeHours * 3600_000);
+  const d = await api(`/vests/${selected}/metrics?metric=heart_rate&from=${from.toISOString()}&to=${to.toISOString()}`);
+  if (!d.t) return;
+  const pts = k => d.t.map((t, i) => ({ x: Date.parse(t) / 1000, y: d[k][i] }));
+  cHist.data.datasets[0].data = pts('min'); cHist.data.datasets[1].data = pts('max'); cHist.data.datasets[2].data = pts('avg'); cHist.update();
+  $('histSource').textContent = `джерело: ${d.source} (репліка), крок ${d.step_s} с, точок: ${d.t.length}`;
+}
+
+async function loadProfile() {
+  const p = await api(`/vests/${selected}/profile`);
+  if (p.status !== 200 || !p.pet_id) { $('pDb').textContent = 'жилет не привʼязаний до тварини'; $('pCache').textContent = '—'; $('gOwner').textContent = gdprOwner ? `власник #${gdprOwner}: видалений` : 'власника немає'; return; }
+  if (document.activeElement !== $('pHr')) $('pHr').value = p.hr_max ?? '';
+  if (document.activeElement !== $('pTemp')) $('pTemp').value = p.temp_max ?? '';
+  profileVersion = p.version;
+  $('pDb').textContent = `пульс ≥ ${p.hr_max}, t° ≥ ${p.temp_max} · версія ${p.version} · змінено ${new Date(p.updated_at).toLocaleTimeString('uk-UA')}`;
+  if (p.owner_id) { gdprOwner = p.owner_id; $('gOwner').textContent = `власник: ${p.owner} (#${p.owner_id})`; }
+  $('pCache').textContent = p.cache === 'redis-down' ? 'Redis недоступний: detection читає профіль з бази'
+    : p.cache ? `пульс ≥ ${p.cache.hr_max}, t° ≥ ${p.cache.temp_max} · TTL ${p.cache_ttl_s} с` : 'немає (наступний пакет завантажить з бази)';
+}
+$('pSave').onclick = async () => {
+  const b = $('pSave'), r = $('pResult');
+  b.disabled = true; b.textContent = 'чекаємо репліку…';
+  r.style.display = 'block'; r.className = 'result'; r.textContent = 'UPDATE на primary, synchronous_commit = remote_apply…';
+  const res = await api(`/vests/${selected}/profile`, { hr_max: +$('pHr').value, temp_max: +$('pTemp').value, version: profileVersion }, 'PUT');
+  b.disabled = false; b.textContent = 'Зберегти';
+  if (res.status === 200) { r.className = 'result ok'; r.innerHTML = `✓ підтверджено за <b>${res.commit_ms} мс</b>: репліка застосувала зміну. Кеш detection інвалідовано (DEL).`; }
+  else if (res.status === 409) { r.className = 'result bad'; r.innerHTML = `✕ <b>409, optimistic lock</b>: ${res.error}. Зараз у базі: пульс ≥ ${res.current?.hr_max}, t° ≥ ${res.current?.temp_max}.`;
+    $('pHr').value = res.current?.hr_max ?? ''; $('pTemp').value = res.current?.temp_max ?? ''; }
+  else { r.className = 'result bad'; r.innerHTML = `✕ <b>${res.status}</b>: ${res.error ?? 'помилка'}${res.waited_ms ? ` · чекали ${res.waited_ms} мс` : ''}`; }
+  loadProfile();
+};
+
+// ---- GDPR saga ----
+let profileVersion, gdprOwner, gdprPoll;
+const SAGA = [['mark', '1 · запит'], ['postgres', '2 · Postgres'], ['telemetry', '3 · телеметрія'], ['parquet', '4 · Parquet'], ['redis', '5 · Redis']];
+function renderSaga(st) {
+  const req = st?.request, wf = st?.workflow, done = req?.status === 'done';
+  const cur = req ? SAGA.findIndex(([k]) => k === req.step) : wf?.status === 'RUNNING' ? 0 : -1;
+  // The pending step has failed at least once (worker gone, heartbeat timeout): it waits for a worker to retry it.
+  const waiting = wf?.pending && (wf.pending.attempt > 1 || wf.pending.state === 'SCHEDULED') && !running('saga-worker');
+  $('gSteps').replaceChildren(...SAGA.map(([, label], i) => el('span', {
+    className: done || (cur >= 0 && i < cur) ? 'done' : i === cur ? (waiting ? 'wait' : 'cur') : '',
+    textContent: (done || i < cur ? '✓ ' : i === cur ? (waiting ? '⏸ ' : '… ') : '') + label })));
+  if (st?.ui_url) $('gUi').href = st.ui_url;
+  if (!req && !wf) return;
+  const r = $('gResult'); r.style.display = 'block';
+  if (done) { r.className = 'result ok'; r.innerHTML = `✓ власника видалено з усіх сховищ за ${((Date.parse(req.updated_at) - Date.parse(req.created_at)) / 1000).toFixed(0)} с · жилети ${req.devices?.join(', ') || '—'} відвʼязані`; }
+  else if (waiting) { r.className = 'result bad'; r.innerHTML = `⏸ saga-worker недоступний: крок «${SAGA[cur]?.[1] ?? wf.pending.activity}» чекає (спроба ${wf.pending.attempt}${wf.pending.last_failure ? ', ' + wf.pending.last_failure : ''}). Увімкніть воркер: сага продовжить з цього кроку.`; }
+  else { r.className = 'result'; r.innerHTML = `сага йде: крок «${SAGA[cur]?.[1] ?? '…'}»${wf?.pending?.attempt > 1 ? ` · спроба ${wf.pending.attempt}` : ''} · стан у Temporal: ${wf?.status ?? '—'}`; }
+  if (done || wf?.status === 'COMPLETED') { clearInterval(gdprPoll); gdprPoll = null; }
+}
+async function pollSaga() { if (gdprOwner) renderSaga(await api(`/owners/${gdprOwner}/gdpr-delete`)); }
+$('gDelete').onclick = async () => {
+  if (!gdprOwner) return;
+  const b = $('gDelete'); b.disabled = true;
+  const res = await api(`/owners/${gdprOwner}/gdpr-delete`, {});
+  b.disabled = false;
+  const r = $('gResult'); r.style.display = 'block';
+  if (res.status !== 200 && res.status !== 409) { r.className = 'result bad'; r.innerHTML = `✕ <b>${res.status}</b>: ${res.error}`; return; }
+  if (res.ui_url) $('gUi').href = res.ui_url;
+  clearInterval(gdprPoll); gdprPoll = setInterval(pollSaga, 1000); pollSaga();
+};
+renderSaga(null);
+
+function addAlert(a, fresh) {
+  const box = $('alerts');
+  if (box.firstElementChild?.classList.contains('muted')) box.replaceChildren();
+  const e = el('div', { className: 'alert' + (fresh ? ' new' : '') },
+    el('span', { className: 'badge bad', textContent: ALERT_LABELS[a.type] ?? a.type }),
+    el('span', { textContent: `${a.device_id} · ${a.pet ?? ''} · ${a.value}${a.threshold ? ' (поріг ' + a.threshold + ')' : ''}` }),
+    el('span', { className: 'muted mono', textContent: a.latency_ms != null ? `${a.latency_ms} мс` : new Date(a.ts).toLocaleTimeString('uk-UA') }));
+  e.onclick = () => select(a.device_id);
+  box.prepend(e);
+  while (box.children.length > 60) box.lastElementChild.remove();
+  if (fresh) {
+    const t = $('toast');
+    t.innerHTML = `<b>${ALERT_LABELS[a.type] ?? a.type}</b> · ${a.pet ?? a.device_id}: ${a.value}<br>→ ${a.owner ?? 'власник'}, ${a.vet ?? 'ветеринар'} · за ${a.latency_ms} мс від прийому пакета`;
+    t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 5000);
+  }
+}
+
+// ======================= demo script =======================
+const firstSim = () => ops.sims?.[0]?.name ?? 'laptop';
+const chaos = (s, a) => api(`/chaos/${s}/${a}`, {});
+const STEPS = [
+  ['Норма', 'На пульті парку (Raspberry Pi) — 50 жилетів, кожен шле пакет раз на 20 с. Показати конвеєр, SLO зелені, репліка sync.', []],
+  ['Тривога', 'VST-0007 → тахікардія. Через ~10 с пульсу вище порогу приходить сповіщення, затримка < 1 с.', [['тахікардія VST-0007', async () => { await api('/sim/vests/VST-0007/scenario', { scenario: 'tachycardia' }); select('VST-0007'); }]]],
+  ['Профіль і кеш (PC/EC)', 'Знизити поріг пульсу для VST-0003 до 100: запис чекає репліку (remote_apply), кеш detection видаляється, тривога спрацьовує без зміни сценарію.', [['відкрити VST-0003', () => select('VST-0003')]]],
+  ['Навантаження', 'На пульті Pi: 10 000 жилетів = 500 пакетів/с = 10 000 рядків/с: цільове навантаження, усе зелене. Час ×5 = 2 500 пакетів/с (у 5 разів вище вимоги): ingest і Kafka тримають, writer упирається в диск, lag росте — черга поглинає, дані не губляться. Повернути ×1 — writer наздоганяє.', []],
+  ['База недоступна для writer (PA)', 'Вимикаємо writer: lag writer росте, а detection і тривоги працюють далі — окремі consumer groups. Вмикаємо: writer наздоганяє, цілісність → 0.', [['вимкнути writer', () => chaos('writer', 'stop')], ['увімкнути', () => chaos('writer', 'start')]]],
+  ['Kafka: брокер падає', 'Один брокер вниз: ISR 2/3, запис іде (min.insync = 2). Другий вниз: кворуму немає, Kafka відмовляє (PC черги), ingest не підтверджує, брокер MQTT тримає повідомлення. Підняти: усе доходить.', [['вимкнути b3', () => chaos('kafka-3', 'stop')], ['вимкнути b2', () => chaos('kafka-2', 'stop')], ['увімкнути обидва', async () => { await chaos('kafka-2', 'start'); await chaos('kafka-3', 'start'); }]]],
+  ['Репліка БД падає (PC проти PA)', 'Вимикаємо репліку: телеметрія пишеться далі (synchronous_commit = local), графіки читаються з primary, а зміна профілю → 503 через 4 с (remote_apply). Після увімкнення репліка ~30 с доганяє WAL, потім знову sync.', [['вимкнути репліку', () => chaos('pg-replica', 'stop')], ['увімкнути', () => chaos('pg-replica', 'start')]]],
+  ['GDPR-видалення: сага в Temporal', 'Власник VST-0007 просить видалити дані. Сага з 5 кроків: запит → Postgres (власник, тварини, привʼязки) → телеметрія й агрегати → Parquet → копії в Redis. На кроці «телеметрія» вимкнути saga-worker: сага стоїть, у Temporal UI видно, на якому кроці і скільки спроб. Увімкнути: продовжує з того самого кроку. «↺ скинути демо» повертає власника.', [['відкрити VST-0007', () => select('VST-0007')], ['видалити власника', () => $('gDelete').click()], ['вимкнути saga-worker', () => chaos('saga-worker', 'stop')], ['увімкнути', () => chaos('saga-worker', 'start')], ['Temporal UI ↗', () => window.open($('gUi').href, '_blank')]]],
+  ['Розподіл: жилети без мережі', 'На пульті Pi «мережа є — вимкнути» або висмикнути Wi-Fi: жилети пишуть у свої буфери. Після відновлення — сплеск, черга вирівнює, lag розсмоктується.', []],
+  ['Raspberry Pi', 'Другий парк жилетів на Pi в тій самій мережі. Висмикнути Wi-Fi на Pi — справжній partition; повернути — сплеск з буферів.', []],
+];
+$('steps').replaceChildren(...STEPS.map(([title, text, actions]) => {
+  const s = el('div', { className: 'step' }, el('div', {}, el('b', { textContent: title }), el('span', { textContent: text })),
+    el('div', { className: 'row' }, ...actions.map(([label, fn]) => { const b = el('button', { textContent: label }); b.onclick = async () => { b.disabled = true; await fn(); b.disabled = false; s.classList.add('done'); }; return b; })));
+  return s;
+}));
+
+// ======================= boot =======================
+$('rangeButtons').replaceChildren(...RANGES.map(([label, h]) => {
+  const b = el('button', { textContent: label, className: h === rangeHours ? 'active' : '' });
+  b.onclick = () => { rangeHours = h; [...$('rangeButtons').children].forEach(x => x.classList.toggle('active', x === b)); loadHistory(); };
+  return b;
+}));
+$('resetAll').onclick = async () => { await api('/sim/reset', {}); clearInterval(gdprPoll); gdprPoll = null; $('gResult').style.display = 'none'; renderSaga(null); loadProfile(); document.querySelectorAll('.step.done').forEach(s => s.classList.remove('done')); $('alerts').replaceChildren(el('span', { className: 'muted', textContent: 'поки немає' })); refreshVests(); };
+
+(async () => {
+  scenarios = (await api('/sims')).scenarios ?? scenarios;
+  ops = await api('/ops'); render();
+  (await api('/alerts').then(r => Array.isArray(r) ? r : Object.values(r).filter(a => a?.device_id))).reverse().forEach(a => addAlert(a, false));
+  await select(selected);
+  setInterval(refreshVests, 3000);
+  setInterval(loadProfile, 3000);
+  setInterval(loadHistory, 30000);
+})();
+</script>
+</body>
+</html>

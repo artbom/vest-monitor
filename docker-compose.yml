@@ -1,0 +1,148 @@
+# Vest monitoring demo, UI at http://localhost:18300.
+# GDPR deletion: api -> Temporal -> saga-worker (Postgres, TimescaleDB, Redis). Temporal UI at http://localhost:18233.
+# vests -> MQTT (mosquitto) -> ingest -> Kafka (3 brokers) -> writer -> TimescaleDB primary -> replica
+#                                                        \-> detection -> alerts (Redis: profile cache, alert pauses)
+# Ports are shifted (+10000) so they do not clash with local Postgres/Redis on 5432/6379.
+x-app: &app
+  build: .
+  restart: unless-stopped
+  environment: &app-env
+    MQTT_URL: mqtt://mosquitto:1883
+    REDIS_URL: redis://redis:6379
+    KAFKA_BROKERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    PG_PRIMARY: pg-primary:5432
+    PG_REPLICA: pg-replica:5432
+    TEMPORAL_ADDRESS: temporal:7233
+  deploy: { resources: { limits: { cpus: '1', memory: 256M } } }
+
+x-kafka: &kafka
+  image: apache/kafka:3.9.1
+  restart: unless-stopped
+  environment: &kafka-env
+    CLUSTER_ID: vQ5UXdJwSJ2d1cG8n3Qe7w
+    KAFKA_PROCESS_ROLES: broker,controller
+    KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+    KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+    KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+    KAFKA_MIN_INSYNC_REPLICAS: 2
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    KAFKA_HEAP_OPTS: -Xms256m -Xmx384m
+  deploy: { resources: { limits: { memory: 640M } } }
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes: [./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro, mqttdata:/mosquitto/data]
+    ports: ["11883:1883"]
+    deploy: { resources: { limits: { memory: 512M } } }
+
+  kafka-1: { <<: *kafka, hostname: kafka-1, environment: { <<: *kafka-env, KAFKA_NODE_ID: 1, KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092 } }
+  kafka-2: { <<: *kafka, hostname: kafka-2, environment: { <<: *kafka-env, KAFKA_NODE_ID: 2, KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092 } }
+  kafka-3: { <<: *kafka, hostname: kafka-3, environment: { <<: *kafka-env, KAFKA_NODE_ID: 3, KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092 } }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Cache keys and alert pauses all have a TTL, so only they can be evicted (volatile-lru); simulator control keys never are.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
+    ports: ["16379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 30 }
+    deploy: { resources: { limits: { memory: 192M } } }
+
+  # Telemetry and relational data share one cluster. synchronous_standby_names makes the replica synchronous,
+  # but only for roles that ask for it: the api role commits with remote_apply, writer and detection with local.
+  pg-primary:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    command: [postgres, -c, shared_preload_libraries=timescaledb, -c, wal_level=replica, -c, max_wal_senders=10,
+              -c, max_replication_slots=10, -c, synchronous_standby_names=replica1, -c, synchronous_commit=local,
+              # Fewer checkpoints = fewer full-page images in the WAL (inserts touch index pages all over the active chunk).
+              -c, max_wal_size=4GB, -c, checkpoint_timeout=15min, -c, wal_compression=lz4, -c, shared_buffers=256MB]
+    environment: { POSTGRES_USER: vest, POSTGRES_PASSWORD: vest, POSTGRES_DB: vest }
+    volumes:
+      - ./db/01-replication.sh:/docker-entrypoint-initdb.d/01-replication.sh:ro
+      - ./db/init.sql:/docker-entrypoint-initdb.d/02-init.sql:ro
+      - ./db/saga.sql:/docker-entrypoint-initdb.d/03-saga.sql:ro
+      - pgprimary:/var/lib/postgresql/data
+    ports: ["15432:5432"]
+    # TCP check: the temporary server that runs the init scripts listens on the socket only.
+    healthcheck: { test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "vest", "-d", "vest"], interval: 2s, retries: 90 }
+    deploy: { resources: { limits: { cpus: '2', memory: 1G } } }
+
+  pg-replica:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    entrypoint: [/replica.sh]
+    environment: { PGDATA: /var/lib/postgresql/data }
+    volumes: [./db/replica.sh:/replica.sh:ro, pgreplica:/var/lib/postgresql/data]
+    ports: ["15433:5432"]
+    depends_on: { pg-primary: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "vest", "-d", "vest"], interval: 2s, retries: 90 }
+    deploy: { resources: { limits: { cpus: '1', memory: 768M } } }
+
+  ingest:
+    <<: *app
+    command: ["node", "src/ingest.ts"]
+    depends_on: [mosquitto, kafka-1, kafka-2, kafka-3, redis]
+
+  writer:
+    <<: *app
+    command: ["node", "src/writer.ts"]
+    depends_on: { pg-primary: { condition: service_healthy }, kafka-1: { condition: service_started } }
+
+  detection:
+    <<: *app
+    command: ["node", "src/detection.ts"]
+    depends_on: { pg-primary: { condition: service_healthy }, kafka-1: { condition: service_started }, redis: { condition: service_healthy } }
+
+  api:
+    <<: *app
+    command: ["node", "src/api.ts"]
+    # Only this machine: the dashboard can stop containers through the chaos service.
+    ports: ["127.0.0.1:18300:3000"]
+    depends_on: { pg-primary: { condition: service_healthy }, pg-replica: { condition: service_healthy }, redis: { condition: service_healthy }, temporal: { condition: service_started } }
+
+  # Temporal dev server: orchestrator of the GDPR deletion saga. One process with in-memory SQLite: a demo, not a
+  # cluster (restarting this container forgets the workflow histories). Web UI: http://localhost:18233.
+  temporal:
+    image: temporalio/temporal:1.9.1
+    restart: unless-stopped
+    command: [server, start-dev, --ip, 0.0.0.0, --ui-port, "8233", --log-level, warn]
+    ports: ["127.0.0.1:18233:8233", "127.0.0.1:17233:7233"]
+    deploy: { resources: { limits: { memory: 256M } } }
+
+  # Runs the saga steps. Stop it mid-saga from the dashboard: the saga waits, then continues from the same step.
+  saga-worker:
+    <<: *app
+    command: ["node", "src/saga-worker.ts"]
+    depends_on: { pg-primary: { condition: service_healthy }, temporal: { condition: service_started }, redis: { condition: service_healthy } }
+    deploy: { resources: { limits: { cpus: '1', memory: 384M } } }
+
+  # Stops/starts containers of this project for the demo. Not published: only the api can reach it.
+  chaos:
+    <<: *app
+    command: ["node", "src/chaos.ts"]
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    user: root
+    deploy: { resources: { limits: { cpus: '0.5', memory: 128M } } }
+
+  simulator:
+    <<: *app
+    command: ["node", "src/simulator.ts"]
+    # Its control panel: http://localhost:18080 (on the Raspberry Pi the same panel runs on :8080).
+    environment: { <<: *app-env, SIM_NAME: laptop, VESTS: "${VESTS:-50}", SPEED: "${SPEED:-1}", CONTROL_URL: "http://localhost:18080" }
+    ports: ["18080:8080"]
+    depends_on: [ingest]
+
+volumes:
+  mqttdata:
+  pgprimary:
+  pgreplica:

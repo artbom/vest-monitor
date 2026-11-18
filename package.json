@@ -1,0 +1,33 @@
+{
+  "name": "vest-monitor",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "simulator": "node src/simulator.ts",
+    "ingest": "node src/ingest.ts",
+    "writer": "node src/writer.ts",
+    "detection": "node src/detection.ts",
+    "api": "node src/api.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@temporalio/activity": "1.25.0",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/worker": "1.25.0",
+    "@temporalio/workflow": "1.25.0",
+    "fastify": "^5.6.0",
+    "ioredis": "^5.8.0",
+    "kafkajs": "^2.2.4",
+    "mqtt": "^5.14.0",
+    "pg": "^8.16.0",
+    "protobufjs": "^8.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
+  }
+}
