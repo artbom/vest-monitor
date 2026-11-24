@@ -76,7 +76,7 @@ TypeScript, Node 24 запускає `.ts` напряму. Перевірка т
 | `src/saga/activities.ts` | кроки саги, кожен ідемпотентний: запит, Postgres, телеметрія й агрегати, Parquet (заглушка), Redis |
 | `src/saga-worker.ts` | воркер Temporal, черга `gdpr`; workflow збирається при збірці образу (`src/saga/bundle.ts`) |
 | `src/migrate.ts`, `db/saga.sql` | `vest_bindings`, `deletion_requests`, `pets.version`; застосовується і на наявній базі |
-| `src/chaos.ts` | вимикає/вмикає контейнери для демо (через Docker socket, лише з білого списку) |
+| `src/chaos.ts` | вимикає/вмикає контейнери для демо (через Docker socket, лише з білого списку); віддає ліміти й використання CPU/памʼяті всіх контейнерів проєкту |
 | `db/init.sql` | схема, політики стиснення й зберігання, continuous aggregates, ролі з різним `synchronous_commit` |
 | `db/replica.sh`, `db/01-replication.sh` | потокова репліка |
-| `public/index.html` | дашборд |
+| `public/index.html` | дашборд: конвеєр, карта сервісів з перемикачами, ресурси контейнерів |

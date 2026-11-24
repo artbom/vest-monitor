@@ -335,16 +335,18 @@ refreshStorage().catch(() => {});
 
 let ops: Record<string, unknown> = {};
 async function refreshOps() {
-  const [k, p, s, counts, services] = await Promise.all([
+  const [k, p, s, counts, services, resources] = await Promise.all([
     kafkaState().catch(e => { adminUp = false; admin.disconnect().catch(() => {}); admin = kafka.admin(); return { brokers: [], partitions: [], error: (e as Error).message }; }),
     pgState(),
     sims(),
     redis.mget(keys.accepted, keys.stored).catch(() => [null, null]),
     withTimeout(fetch(`${CHAOS}/services`).then(r => r.json()), 1500).catch(() => null),
+    // Limits and live usage of every container of the project, cached by the chaos service.
+    withTimeout(fetch(`${CHAOS}/resources`).then(r => r.json()), 1500).catch(() => null),
   ]);
   const sorted = readLatency.splice(0).sort((a, b) => a - b);
   ops = {
-    at: Date.now(), kafka: k, pg: p, sims: s, services, storage,
+    at: Date.now(), kafka: k, pg: p, sims: s, services, resources, storage,
     integrity: { accepted: Number(counts[0] ?? 0), stored: Number(counts[1] ?? 0) },
     api: { read_p95_ms: sorted.length ? Math.round(sorted[Math.floor(sorted.length * 0.95)]) : null, replica_reads: replicaReads, primary_fallbacks: primaryFallbacks },
     mqtt: { queued: brokerQueue },
@@ -355,6 +357,11 @@ async function refreshOps() {
   broadcast('ops', ops);
 }
 setInterval(() => refreshOps().catch(e => log('api', 'ops failed', { error: (e as Error).message })), 2000);
+// Container usage refreshes every second on its own event: cheap to read from chaos, unlike the rest of ops.
+setInterval(async () => {
+  const r = await withTimeout(fetch(`${CHAOS}/resources`).then(x => x.json()), 900).catch(() => null);
+  if (r) { ops.resources = r; broadcast('resources', r); }
+}, 1000);
 app.get('/ops', async () => ops);
 
 await app.listen({ host: '0.0.0.0', port: Number(env('PORT', '3000')) });

@@ -63,6 +63,10 @@ const client = mqtt.connect(config.mqttUrl, {
   // No keepalive: while a PUBLISH waits for Kafka, the PINGRESP queued behind it would time the session out and cause redeliveries.
   keepalive: 0,
   properties: { sessionExpiryInterval: 3600, receiveMaximum: 100 },
+  // We subscribe ourselves on every connect (below). mqtt.js would otherwise skip that SUBSCRIBE as a duplicate, and
+  // mosquitto restores a persisted session without its $share subscription: after a broker restart ingest stayed
+  // connected but subscribed to nothing.
+  resubscribe: false,
   customHandleAcks: (topic, message, _packet, done) => {
     const receivedAt = Date.now();
     counters.received++; counters.bytes += message.length;
@@ -80,7 +84,9 @@ const client = mqtt.connect(config.mqttUrl, {
 });
 // A shared subscription spreads vests over all ingest instances: `docker compose up --scale ingest=3`.
 client.on('connect', () => {
-  client.subscribe('$share/ingest/vests/+/telemetry', { qos: 1 });
+  client.subscribe('$share/ingest/vests/+/telemetry', { qos: 1 }, err => {
+    if (err) log('ingest', 'subscribe failed', { session: i, error: err.message });
+  });
   if (i === 0) log('ingest', 'subscribed', { topic: '$share/ingest/vests/+/telemetry', sessions: SESSIONS });
 });
 client.on('error', e => log('ingest', 'mqtt error', { error: e.message }));

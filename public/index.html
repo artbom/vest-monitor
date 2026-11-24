@@ -163,6 +163,42 @@ a.ext:hover { color: var(--ink); }
 .step::before { counter-increment: step; content: counter(step, decimal-leading-zero); font: 600 12px var(--mono); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(54,214,255,.1); color: var(--accent); border: 1px solid rgba(54,214,255,.35); }
 .step.done::before { background: rgba(57,245,160,.16); color: var(--ok); border-color: rgba(57,245,160,.5); content: "✓"; }
 .step b { display: block; font-weight: 700; } .step span { color: var(--ink-3); font-size: 13px; }
+/* ---- service map: live SVG diagram of every container ---- */
+.map { width: 100%; height: auto; display: block; }
+.map .grp { fill: none; stroke: var(--rule); stroke-dasharray: 4 5; }
+.map .grpl { font: 500 11px var(--mono); fill: var(--ink-3); letter-spacing: .12em; text-transform: uppercase; }
+.map .n rect.box { fill: var(--panel-2); stroke: var(--rule); stroke-width: 1.2; transition: .3s; }
+.map .n rect.top { fill: var(--ok); }
+.map .n.warn rect.top { fill: var(--warn); }
+.map .n.bad rect.box { stroke: rgba(224,96,111,.7); fill: #241a1f; } .map .n.bad rect.top { fill: var(--bad); }
+.map .n.off rect.box { fill: #161b22; stroke: rgba(224,96,111,.55); } .map .n.off rect.top { fill: var(--off); } .map .n.off text { fill: var(--ink-3); }
+.map .n .tt { font: 600 13px var(--mono); fill: var(--ink); }
+.map .n .l1 { font: 600 13px var(--mono); fill: var(--ink-2); }
+.map .n .l2 { font: 500 10.5px var(--mono); fill: var(--ink-3); }
+.map .n.bad .l1 { fill: #ffb3bb; }
+.map .n .mbar { fill: rgba(255,255,255,.06); } .map .n .mfill { fill: var(--s1); transition: width .5s; } .map .n .mfill.hi { fill: var(--warn); }
+.map .sw { cursor: pointer; } .map .sw rect { fill: rgba(92,196,140,.25); stroke: var(--ok); transition: .2s; } .map .sw circle { fill: var(--ok); transition: cx .2s; }
+.map .sw.offs rect { fill: rgba(224,96,111,.18); stroke: var(--bad); } .map .sw.offs circle { fill: var(--bad); }
+.map .sw.pend rect { fill: rgba(226,166,74,.2); stroke: var(--warn); } .map .sw.pend circle { fill: var(--warn); animation: blink .8s ease-in-out infinite; }
+.map .sw.lock { cursor: not-allowed; opacity: .45; }
+@keyframes blink { 50% { opacity: .3; } }
+.map .e { fill: none; stroke: var(--off); stroke-width: 2; opacity: .55; transition: stroke .3s; }
+.map .e.svc { stroke-dasharray: 5 6; }
+.map .e.on { opacity: 1; stroke: var(--accent); stroke-dasharray: 3 10; stroke-linecap: round; animation: dash linear infinite; }
+.map .e.svc.on { stroke: var(--s4); }
+.map .e.bad { opacity: 1; stroke: var(--bad); stroke-dasharray: 2 6; animation: none; }
+@keyframes dash { to { stroke-dashoffset: -26; } }
+.map .el { font: 500 11px var(--mono); fill: var(--ink-2); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
+.map .el.bad { fill: var(--bad); }
+.res { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 14px; }
+.res th { text-align: left; font: 500 10.5px var(--mono); color: var(--ink-3); letter-spacing: .1em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.res td { padding: 5px 8px; border-bottom: 1px solid rgba(37,48,64,.6); font-family: var(--mono); }
+.res td.svc { font-family: var(--font); font-weight: 600; }
+.res tr.off td { color: var(--ink-3); }
+.res .rb { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.06); vertical-align: middle; margin-right: 8px; overflow: hidden; }
+.res .rb i { display: block; height: 100%; background: var(--s1); } .res .rb i.hi { background: var(--warn); }
+.restot { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+.restot b { font: 600 18px var(--mono); display: block; }
 details > summary { cursor: pointer; list-style: none; } details > summary::-webkit-details-marker { display: none; }
 ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: rgba(120,150,190,.25); border-radius: 8px; }
 </style>
@@ -206,6 +242,17 @@ details > summary { cursor: pointer; list-style: none; } details > summary::-web
       <div class="node" id="nPg" style="grid-column:11;grid-row:1"></div>
       <div class="node" id="nAlerts" style="grid-column:11;grid-row:2"></div>
     </div>
+  </section>
+
+  <!-- ======================= SERVICE MAP ======================= -->
+  <section class="card">
+    <h2>Карта сервісів <span class="muted" style="text-transform:none;letter-spacing:0">кожен блок — контейнер; перемикач — справжній docker stop / start; наведіть на блок, щоб побачити роль і налаштування</span></h2>
+    <svg class="map" id="map" viewBox="0 0 1700 500" role="img" aria-label="Схема потоків даних між контейнерами"></svg>
+    <details open>
+      <summary class="muted" style="font-size:12.5px;margin-top:6px">▾ Ресурси контейнерів: ліміти з docker-compose і поточне використання</summary>
+      <div class="restot" id="resTot"></div>
+      <table class="res"><thead><tr><th>Контейнер</th><th>Стан</th><th>CPU ліміт</th><th>CPU зараз</th><th>Памʼять ліміт</th><th>Памʼять зараз</th></tr></thead><tbody id="resBody"></tbody></table>
+    </details>
   </section>
 
   <!-- ======================= SLO ======================= -->
@@ -342,6 +389,8 @@ function connect() {
   es.addEventListener('alerts', e => addAlert(JSON.parse(e.data), true));
   es.addEventListener('stats', e => { const s = JSON.parse(e.data); stats[s.service] = s; });
   es.addEventListener('ops', e => { ops = JSON.parse(e.data); render(); });
+  // Container CPU/memory arrives every second on its own event; only the map and the resources table redraw.
+  es.addEventListener('resources', e => { ops.resources = JSON.parse(e.data); renderMap(); renderResources(); });
 }
 
 // ======================= rendering =======================
@@ -411,6 +460,7 @@ function render() {
     `primary → <b>репліка</b> ${repOn ? '' : '<b style="color:var(--bad)">вимкнена</b>'}<br>${ops.storage?.rows ? kfmt(+ops.storage.rows) + ' рядків · ' + bytes(+ops.storage.bytes) : ''}`,
     el('div', { className: 'row', style: 'gap:4px;font-size:12px' }, el('span', { className: 'muted', textContent: 'репліка' }), power('pg-replica')));
   node('nAlerts', (det.alerts ?? 0) > 0 ? 'bad' : 'ok', 'Сповіщення', null, `${ops.storage?.alerts ?? 0}`, `тривог у базі · p99 ${det.alert_p99_ms ?? '—'} мс<br>власнику й ветеринару`);
+  try { renderMap(); } catch (e) { console.error('service map', e); }
   edge('e1', sent); edge('e2', ing.received ?? 0); edge('e3', ing.accepted ?? 0); edge('e4', wr.packets ?? 0); edge('e5', det.packets ?? 0); edge('e6', wr.packets ?? 0); edge('e7', det.alerts ?? 0);
 
   // --- SLO tiles ---
@@ -442,6 +492,204 @@ function render() {
   renderSims(sims, simStats);
   $('gPower').replaceChildren(power('saga-worker'));
   if (gdprPoll) pollSaga();
+}
+
+// ======================= service map =======================
+// Built once (and again only when the set of fleets changes); every ops tick only updates attributes, so the flow
+// animation on the edges keeps running instead of restarting every 2 s.
+const NS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs = {}, ...kids) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids.filter(Boolean)); return e; };
+const NW = 168, NH = 74;
+const MAP = {
+  mosquitto: { x: 262, y: 222, title: 'mosquitto', tip: 'MQTT-брокер, :11883. Дає PUBACK жилету (QoS 1) і тримає повідомлення в persistent session, поки ingest не підтвердить.' },
+  ingest: { x: 504, y: 222, title: 'ingest', tip: '32 MQTT-сесії в спільній підписці $share/ingest. PUBACK брокеру лише після запису в Kafka з acks=all.' },
+  'kafka-1': { x: 758, y: 76, title: 'kafka-1', tip: 'Брокер 1 (KRaft). Топік telemetry: 12 партицій × 3 репліки, min.insync.replicas = 2.' },
+  'kafka-2': { x: 758, y: 222, title: 'kafka-2', tip: 'Брокер 2 (KRaft). Без одного брокера запис іде (ISR 2/3), без двох Kafka відмовляє (PC).' },
+  'kafka-3': { x: 758, y: 368, title: 'kafka-3', tip: 'Брокер 3 (KRaft). Кожна партиція має лідера на одному з брокерів, фоловери тягнуть дані з нього.' },
+  writer: { x: 1010, y: 40, title: 'writer', tip: 'Consumer group writer. INSERT … ON CONFLICT DO NOTHING, synchronous_commit = local (PA/EL). Офсет комітиться після запису.' },
+  detection: { x: 1010, y: 222, title: 'detection', tip: 'Consumer group detection. Правила за профілем тварини; профіль у Redis (cache-aside, single-flight).' },
+  'saga-worker': { x: 1010, y: 404, title: 'saga-worker', tip: 'Виконує кроки GDPR-саги gdprDelete. Вимкнути на кроці 3: сага чекає, після ввімкнення продовжує з того ж кроку.' },
+  'pg-primary': { x: 1262, y: 40, title: 'pg-primary', tip: 'PostgreSQL + TimescaleDB, :15432. Годинні чанки, агрегати 1m/1h/1d. Автоматичного failover у демо немає, тому не вимикається.' },
+  redis: { x: 1262, y: 222, title: 'redis', tip: 'Redis, :16379. Копії профілів (TTL з jitter), паузи сповіщень, конфіг парків. volatile-lru.' },
+  temporal: { x: 1262, y: 404, title: 'temporal', tip: 'Temporal dev-сервер, UI :18233. Зберігає стан і історію GDPR-саги.' },
+  'pg-replica': { x: 1514, y: 40, title: 'pg-replica', tip: 'Синхронна репліка, :15433. Профілі пишуться з remote_apply (PC/EC), графіки читаються звідси.' },
+  api: { x: 1514, y: 222, title: 'api', tip: 'REST + SSE + цей дашборд, :18300. Не вимикається: з нього керуємо демо.' },
+  chaos: { x: 1514, y: 404, title: 'chaos', tip: 'Вимикає і вмикає контейнери через Docker socket, лише з білого списку. Не вимикається.' },
+};
+// [from, to, kind]: 'data' = telemetry flow, 'svc' = service calls. Anchors are computed from the node boxes.
+const EDGES = [
+  ['mosquitto', 'ingest', 'data'], ['ingest', 'kafka', 'data'], ['kafka', 'writer', 'data'], ['kafka', 'detection', 'data'],
+  ['writer', 'pg-primary', 'data'], ['pg-primary', 'pg-replica', 'data'], ['detection', 'redis', 'data'],
+  ['detection', 'pg-primary', 'svc'], ['api', 'pg-replica', 'svc'], ['api', 'pg-primary', 'svc'], ['api', 'redis', 'svc'],
+  ['api', 'chaos', 'svc'], ['api', 'temporal', 'svc'], ['temporal', 'saga-worker', 'svc'], ['saga-worker', 'pg-primary', 'svc'],
+];
+const KAFKA_BOX = { x: 746, y: 52, w: NW + 24, h: 400 };
+let mapSims = '', mapEls = {};
+const pending = {};
+
+function box(id) { if (id === 'kafka') return KAFKA_BOX; const n = MAP[id] ?? mapSim(id); return { x: n.x, y: n.y, w: NW, h: NH }; }
+function mapSim(id) { const i = (ops.sims ?? []).findIndex(s => 'sim:' + s.name === id), n = (ops.sims ?? []).length; return { x: 20, y: 222 + (i - (n - 1) / 2) * 112 }; }
+function anchor(a, b) {
+  // Leave from the side facing the other box; vertical neighbours connect top/bottom.
+  const A = box(a), B = box(b), ac = [A.x + A.w / 2, A.y + A.h / 2], bc = [B.x + B.w / 2, B.y + B.h / 2];
+  if (Math.abs(ac[0] - bc[0]) < 40) return ac[1] < bc[1] ? [[ac[0], A.y + A.h], [bc[0], B.y]] : [[ac[0], A.y], [bc[0], B.y + B.h]];
+  const p1 = ac[0] < bc[0] ? [A.x + A.w, ac[1]] : [A.x, ac[1]], p2 = ac[0] < bc[0] ? [B.x, bc[1]] : [B.x + B.w, bc[1]];
+  return [p1, p2];
+}
+function curve([[x1, y1], [x2, y2]]) {
+  if (x1 === x2) return `M${x1} ${y1} L${x2} ${y2}`;
+  const dx = (x2 - x1) / 2;
+  return `M${x1} ${y1} C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`;
+}
+
+function buildMap() {
+  const svg = $('map'), sims = ops.sims ?? [];
+  mapSims = sims.map(s => s.name).join(','); mapEls = {};
+  svg.replaceChildren();
+  svg.append(sv('rect', { class: 'grp', x: KAFKA_BOX.x, y: KAFKA_BOX.y, width: KAFKA_BOX.w, height: KAFKA_BOX.h, rx: 14 }),
+    sv('text', { class: 'grpl', x: KAFKA_BOX.x + 12, y: KAFKA_BOX.y - 8 }, document.createTextNode('Kafka · telemetry')));
+  const all = [...EDGES, ...sims.map(s => ['sim:' + s.name, 'mosquitto', 'data'])], labels = [];
+  for (const [a, b, kind] of all) {
+    const pts = anchor(a, b), path = sv('path', { class: 'e' + (kind === 'svc' ? ' svc' : ''), d: curve(pts) });
+    const mid = [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2 - 7];
+    const label = sv('text', { class: 'el', x: mid[0], y: mid[1], 'text-anchor': 'middle' });
+    svg.append(path); labels.push(label);
+    mapEls[a + '>' + b] = { path, label };
+  }
+  for (const id of [...Object.keys(MAP), ...sims.map(s => 'sim:' + s.name)]) {
+    const n = MAP[id] ?? { ...mapSim(id), title: id.slice(4), tip: id === 'sim:laptop' ? 'Симулятор жилетів на ноутбуці (контейнер simulator). Пакет раз на 20 с, QoS 1. Кількість жилетів — на його пульті :18080.' : 'Парк жилетів на окремій машині (Raspberry Pi), шле по Wi-Fi. Кількість жилетів — на пульті :8080 на самій машині.' };
+    const service = id === 'sim:laptop' ? 'simulator' : id.startsWith('sim:') ? null : id;
+    const g = sv('g', { class: 'n', transform: `translate(${n.x} ${n.y})` },
+      sv('title', {}, document.createTextNode(n.tip)),
+      sv('rect', { class: 'box', width: NW, height: NH, rx: 10 }), sv('rect', { class: 'top', width: NW, height: 3, rx: 1.5 }),
+      sv('text', { class: 'tt', x: 12, y: 22 }, document.createTextNode(n.title)),
+      sv('text', { class: 'l1', x: 12, y: 42 }), sv('text', { class: 'l2', x: 12, y: 62 }),
+      sv('rect', { class: 'mbar', x: 12, y: 66, width: NW - 24, height: 3, rx: 1.5 }), sv('rect', { class: 'mfill', x: 12, y: 66, width: 0, height: 3, rx: 1.5 }));
+    let sw = null;
+    if (service) {
+      sw = sv('g', { class: 'sw', transform: `translate(${NW - 42} 10)` }, sv('rect', { width: 30, height: 16, rx: 8 }), sv('circle', { cx: 22, cy: 8, r: 5.5 }));
+      sw.addEventListener('click', ev => { ev.stopPropagation(); toggle(service); });
+      g.append(sw);
+    }
+    $('map').append(g);
+    mapEls[id] = { g, sw, l1: g.querySelector('.l1'), l2: g.querySelector('.l2'), fill: g.querySelector('.mfill'), service };
+  }
+  svg.append(...labels);
+}
+
+const resOf = svc => ops.resources?.containers?.find(c => c.service === svc);
+const isUp = svc => { const r = resOf(svc); return r ? r.running : running(svc); };
+async function toggle(svc) {
+  const r = resOf(svc);
+  if (!r?.controllable || pending[svc]) return;
+  pending[svc] = { target: !r.running, until: Date.now() + 30_000 };
+  renderMap();
+  const res = await api(`/chaos/${svc}/${r.running ? 'stop' : 'start'}`, {});
+  if (res.status >= 400) { delete pending[svc]; const t = $('toast'); t.textContent = `${svc}: не вдалося (${res.error ?? res.status})`; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4000); }
+}
+
+function flow(key, rate, label, bad) {
+  const e = mapEls[key]; if (!e) return;
+  const on = !bad && rate > 0.05;
+  e.path.classList.toggle('on', on); e.path.classList.toggle('bad', !!bad);
+  // More traffic: faster dashes and a thicker line (log scale, so 50 and 5 000 packets/s both read well).
+  e.path.style.animationDuration = on ? Math.max(0.25, Math.min(4, 5 / Math.sqrt(rate))) + 's' : '';
+  e.path.style.strokeWidth = on ? (1.6 + Math.min(3, Math.log10(1 + rate))).toFixed(1) : '';
+  e.label.textContent = label ?? ''; e.label.classList.toggle('bad', !!bad);
+}
+const mb = n => n == null ? '—' : n >= 1024 ** 3 ? (n / 1024 ** 3).toFixed(1) + ' ГБ' : Math.round(n / 1024 ** 2) + ' МБ';
+
+function renderMap() {
+  if ((ops.sims ?? []).map(s => s.name).join(',') !== mapSims || !mapEls.api) buildMap();
+  const s = ops.stats ?? {}, k = ops.kafka ?? { brokers: [], partitions: [] }, pg = ops.pg ?? {};
+  const ing = s.ingest ?? {}, wr = s.writer ?? {}, det = s.detection ?? {};
+  const underMin = k.partitions.filter(p => p.isr.length < 2).length, kDown = !k.partitions.length || underMin > 0;
+  const lagW = sum(k.partitions, p => p.lag_writer), lagD = sum(k.partitions, p => p.lag_detection);
+  const rep = pg.replica, sagaOn = !!gdprPoll;
+  const cache = (det.cache_hits ?? 0) + (det.cache_misses ?? 0);
+  const lines = {
+    mosquitto: [`черга ${kfmt(ops.mqtt?.queued)}`, 'QoS 1 · persistent session'],
+    ingest: [`${fmt(ing.accepted ?? 0)} пак/с`, `ACK p99 ${ing.ack_p99_ms ?? '—'} мс`],
+    writer: [`${kfmt(wr.rows ?? 0)} рядків/с`, `lag ${kfmt(lagW)} · p99 ${wr.e2e_p99_ms ?? '—'} мс`],
+    detection: [`${fmt(det.packets ?? 0)} пак/с`, `lag ${kfmt(lagD)} · тривог ${fmt(det.alerts ?? 0)}/с`],
+    'pg-primary': [pg.up ? `${kfmt(+ops.storage?.rows || 0)} рядків` : 'недоступна', ops.storage?.bytes ? bytes(+ops.storage.bytes) : 'metrics + профілі'],
+    'pg-replica': [rep ? `${rep.sync_state} · ${rep.replay_lag_ms ?? 0} мс` : 'не синхронізована', `читань з репліки ${ops.api?.replica_reads ?? 0}`],
+    redis: [cache ? `кеш ${Math.round(100 * (det.cache_hits ?? 0) / cache)}% влучань` : 'кеш профілів', `${fmt(cache)} звернень/с`],
+    temporal: [sagaOn ? 'сага виконується' : 'саг немає', 'UI :18233'],
+    'saga-worker': [sagaOn ? 'виконує кроки' : 'чекає задач', 'черга gdpr'],
+    api: [`графік p95 ${ops.api?.read_p95_ms ?? '—'} мс`, 'REST · SSE · :18300'],
+    chaos: ['docker stop / start', 'лише білий список'],
+  };
+  for (const id of [1, 2, 3]) lines['kafka-' + id] = [isUp('kafka-' + id) ? (k.partitions.filter(p => p.leader === id).length + ' партицій-лідерів') : 'вимкнено', `ISR ${12 - underMin}/12 з кворумом`];
+  for (const sim of ops.sims ?? []) {
+    const st = s['sim:' + sim.name] ?? {};
+    lines['sim:' + sim.name] = [`${kfmt(+sim.status.vests)} жилетів`, +sim.status.buffered ? `у буфері ${kfmt(+sim.status.buffered)}` : `${fmt(st.packets ?? 0)} пак/с`];
+  }
+
+  for (const [id, e] of Object.entries(mapEls)) {
+    if (!e.g) continue;
+    const svc = e.service ?? (id.startsWith('sim:') ? null : id), r = svc ? resOf(svc) : null;
+    const up = id.startsWith('sim:') ? (id === 'sim:laptop' ? isUp('simulator') : ops.sims?.find(x => 'sim:' + x.name === id)?.status.connected !== '0') : isUp(id);
+    const p = svc && pending[svc];
+    if (p && (Date.now() > p.until || (r && r.running === p.target))) delete pending[svc];
+    const broken = (id === 'ingest' && kDown) || (id === 'pg-replica' && up && !rep) || (id === 'writer' && lagW > 5000);
+    e.g.setAttribute('class', 'n ' + (!up ? 'off' : broken ? 'bad' : (id === 'detection' && lagD > 500) || (id === 'writer' && lagW > 500) ? 'warn' : 'ok'));
+    const [l1, l2] = lines[id] ?? ['', ''];
+    e.l1.textContent = up ? l1 : 'вимкнено';
+    e.l2.textContent = r && r.running ? `CPU ${r.cpu_pct ?? '—'}% · ${mb(r.mem_used)}${r.mem_limit ? ' / ' + mb(r.mem_limit) : ''}` : up ? l2 : 'контейнер зупинено';
+    const frac = r?.mem_limit && r.mem_used ? Math.min(1, r.mem_used / r.mem_limit) : 0;
+    e.fill.setAttribute('width', ((NW - 24) * frac).toFixed(1)); e.fill.classList.toggle('hi', frac > 0.85);
+    if (e.sw) {
+      const lock = !r?.controllable;
+      e.sw.setAttribute('class', 'sw' + (lock ? ' lock' : pending[svc] ? ' pend' : up ? '' : ' offs'));
+      e.sw.querySelector('circle').setAttribute('cx', pending[svc] ? 15 : up ? 22 : 8);
+    }
+  }
+  if (mapEls.api?.sw) mapEls.api.sw.setAttribute('class', 'sw lock');
+
+  const dead = (a, b) => [a, b].some(x => x !== 'kafka' && !x.startsWith('sim:') && !isUp(x));
+  const f = (a, b, rate, label, bad) => flow(a + '>' + b, dead(a, b) ? 0 : rate, dead(a, b) ? '' : label, bad && !dead(a, b));
+  for (const sim of ops.sims ?? []) { const st = s['sim:' + sim.name] ?? {}; f('sim:' + sim.name, 'mosquitto', st.packets ?? 0, `${fmt(st.packets ?? 0)} пак/с`); }
+  f('mosquitto', 'ingest', ing.received ?? 0, `${fmt(ing.received ?? 0)} пак/с`);
+  f('ingest', 'kafka', kDown ? 0 : ing.accepted ?? 0, kDown ? 'немає кворуму' : `acks=all · ${fmt(ing.accepted ?? 0)}/с`, kDown);
+  f('kafka', 'writer', wr.packets ?? 0, `${fmt(wr.packets ?? 0)} пак/с`);
+  f('kafka', 'detection', det.packets ?? 0, `${fmt(det.packets ?? 0)} пак/с`);
+  f('writer', 'pg-primary', wr.rows ?? 0, `${kfmt(wr.rows ?? 0)} рядків/с`);
+  f('pg-primary', 'pg-replica', rep ? (wr.rows ?? 0) : 0, rep ? `WAL · ${rep.sync_state}` : 'репліка не підтверджує', !rep);
+  f('detection', 'redis', cache, cache ? `${fmt(cache)}/с` : '');
+  f('detection', 'pg-primary', (det.cache_misses ?? 0) + (det.alerts ?? 0), det.alerts ? `тривоги ${fmt(det.alerts)}/с` : '');
+  f('api', 'pg-replica', (ops.api?.replica_reads ?? 0) / 2, ops.api?.replica_reads ? 'графіки' : '');
+  f('api', 'pg-primary', 0, 'профілі · remote_apply');
+  f('api', 'redis', 0, 'DEL');
+  f('api', 'chaos', Object.keys(pending).length ? 1 : 0, Object.keys(pending).length ? 'docker stop/start' : '');
+  f('api', 'temporal', sagaOn ? 1 : 0, sagaOn ? 'старт саги' : '');
+  f('temporal', 'saga-worker', sagaOn ? 2 : 0, sagaOn ? 'черга gdpr' : '');
+  f('saga-worker', 'pg-primary', sagaOn ? 2 : 0, sagaOn ? 'DELETE' : '');
+  renderResources();
+}
+
+function renderResources() {
+  const R = ops.resources; if (!R?.containers?.length) return;
+  const rows = R.containers, up = rows.filter(c => c.running);
+  const cpuLim = sum(rows, c => c.cpu_limit), noCpu = rows.filter(c => c.cpu_limit == null).length;
+  const memLim = sum(rows, c => c.mem_limit), cpuNow = sum(up, c => c.cpu_pct) / 100, memNow = sum(up, c => c.mem_used);
+  $('resTot').replaceChildren(
+    el('div', {}, el('span', { className: 'muted', textContent: 'Виділено CPU' }), el('b', { textContent: `${fmt(cpuLim)} ядер` }), el('span', { className: 'muted', textContent: noCpu ? `+ ${noCpu} контейнерів без ліміту CPU` : '' })),
+    el('div', {}, el('span', { className: 'muted', textContent: 'Зараз CPU' }), el('b', { textContent: `${fmt(Math.round(cpuNow * 100) / 100)} ядра` })),
+    el('div', {}, el('span', { className: 'muted', textContent: 'Виділено памʼяті' }), el('b', { textContent: mb(memLim) })),
+    el('div', {}, el('span', { className: 'muted', textContent: 'Зараз памʼяті' }), el('b', { textContent: mb(memNow) })),
+    el('div', {}, el('span', { className: 'muted', textContent: 'Docker VM' }), el('b', { textContent: `${R.host.cpus} CPU · ${mb(R.host.mem)}` })),
+    el('div', {}, el('span', { className: 'muted', textContent: 'Контейнерів' }), el('b', { textContent: `${up.length}/${rows.length} працюють` })));
+  $('resBody').replaceChildren(...rows.map(c => {
+    const frac = c.mem_limit && c.mem_used ? Math.min(1, c.mem_used / c.mem_limit) : 0;
+    return el('tr', { className: c.running ? '' : 'off' },
+      el('td', { className: 'svc', textContent: c.service }),
+      el('td', { innerHTML: c.running ? '<span style="color:var(--ok)">працює</span>' : `<span style="color:var(--bad)">${c.state}</span>` }),
+      el('td', { textContent: c.cpu_limit == null ? 'без ліміту' : fmt(c.cpu_limit) }),
+      el('td', { textContent: c.running && c.cpu_pct != null ? fmt(c.cpu_pct) + '%' : '—' }),
+      el('td', { textContent: c.mem_limit == null ? 'без ліміту' : mb(c.mem_limit) }),
+      el('td', {}, el('span', { className: 'rb' }, el('i', { className: frac > 0.85 ? 'hi' : '', style: `width:${(frac * 100).toFixed(0)}%` })), document.createTextNode(c.running ? mb(c.mem_used) : '—')));
+  }));
 }
 
 // ======================= simulators =======================
