@@ -35,9 +35,9 @@ docker compose -p vest up -d --build
 
 Сценарій показу: [DEMO.md](DEMO.md).
 
-## Симулятор на Raspberry Pi
+## Жилети: симулятор на Raspberry Pi
 
-Другий парк жилетів з окремої машини. На Pi має бути Node 24 (64-бітна ОС) або Docker.
+Жилети шле окрема машина в тій самій мережі, по Wi-Fi. На Pi потрібен Docker (або Node 24 на 64-бітній ОС).
 
 ```bash
 # на ноутбуці: IP у локальній мережі
@@ -45,19 +45,27 @@ ipconfig getifaddr en0
 ```
 
 ```bash
-# скопіювати проєкт на Pi (без node_modules)
-rsync -a --exclude node_modules ./ pi@raspberrypi.local:~/vest-monitor/
+# скопіювати проєкт на Pi і зібрати образ
+rsync -a --exclude node_modules --exclude .git ./ artem@pi.local:~/vest-monitor/
+ssh artem@pi.local 'cd ~/vest-monitor && docker build -t vest-sim .'
 ```
 
 ```bash
-# на Pi
-cd ~/vest-monitor && npm ci --omit=dev
-SIM_NAME=raspberry ID_OFFSET=5000 VESTS=500 MQTT_URL=mqtt://192.168.1.10:11883 REDIS_URL=redis://192.168.1.10:16379 node src/simulator.ts
+# запустити парк (IP ноутбука підставити свій)
+ssh artem@pi.local 'docker rm -f vest-sim; docker run -d --name vest-sim --restart unless-stopped -p 8080:8080 \
+  -e SIM_NAME=raspberry -e VESTS=50 -e MQTT_URL=mqtt://192.168.1.34:11883 -e REDIS_URL=redis://192.168.1.34:16379 \
+  -e CONTROL_URL=http://pi.local:8080 vest-sim node src/simulator.ts'
 ```
 
-Кількість жилетів, швидкість часу і «вимкнути мережу» регулюються на самому парку: пульт відкривається на Pi або з телефона за адресою `http://raspberrypi.local:8080` (для симулятора на ноутбуці — http://localhost:18080). Дашборд ноутбука лише показує всі парки.
+Кількість жилетів, швидкість часу і «вимкнути мережу» регулюються на пульті парку: http://pi.local:8080, з Pi або з телефона. Дашборд ноутбука лише показує парк.
 
-`ID_OFFSET=5000` дає жилети VST-5001…, щоб не перетинатися з ноутбуком. На дашборді з'явиться окрема картка «raspberry» з власним повзунком. Висмикнути Wi-Fi на Pi — справжній partition: жилети пишуть у буфер (до 1000 пакетів кожен), після повернення мережі вивантажують усе разом.
+Жилети мають номери VST-0001…, перші 50 мають тварин, власників і профілі в базі, на них зав'язані сценарії з [DEMO.md](DEMO.md). Висмикнути Wi-Fi на Pi — справжній partition: жилети пишуть у буфер (до 1000 пакетів кожен), після повернення мережі вивантажують усе разом.
+
+Якщо Pi немає в мережі, той самий парк можна запустити на ноутбуці (пульт http://localhost:18080):
+
+```bash
+docker compose -p vest --profile local-sim up -d simulator
+```
 
 ## Код
 

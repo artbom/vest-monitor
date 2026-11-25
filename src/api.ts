@@ -55,7 +55,8 @@ app.get('/vests', async () => {
     `SELECT v.device_id, p.name AS pet, p.species, o.name AS owner, vt.name AS vet FROM vests v
        LEFT JOIN pets p ON p.id = v.pet_id LEFT JOIN owners o ON o.id = p.owner_id LEFT JOIN vets vt ON vt.id = p.vet_id
       ORDER BY v.device_id LIMIT 300`);
-  const scenarios = await redis.hgetall(keys.scenarios);
+  // Scenarios are only a label for the list; without Redis the list still loads from Postgres.
+  const scenarios = await redis.hgetall(keys.scenarios).catch(() => ({} as Record<string, string>));
   return rows.map(r => ({ ...r, scenario: scenarios[r.device_id] ?? 'normal', latest: latest.get(r.device_id) ?? null }));
 });
 
@@ -128,11 +129,19 @@ app.get<{ Querystring: { device_id?: string } }>('/alerts', async req => (await 
     WHERE ($1::text IS NULL OR a.device_id = $1) ORDER BY a.ts DESC LIMIT 50`, [req.query.device_id ?? null])).rows);
 
 // ---- Simulators and scenarios ----
+// Fleet status lives in Redis. While Redis is down the dashboard keeps the last known fleets (marked stale) instead
+// of showing "0 vests", which looked like the whole system had stopped during the Redis scenario.
+let lastSims: { name: string; config: Record<string, string>; status: Record<string, string>; stale?: boolean }[] = [];
 async function sims() {
-  // A simulator's status key expires 5 s after it stops, so the list only has running simulators.
-  const names = (await redis.keys(keys.simStatus('*')).catch(() => [] as string[])).map(k => k.split(':')[1]);
-  const list = await Promise.all(names.map(async name => ({ name, config: await redis.hgetall(keys.simConfig(name)), status: await redis.hgetall(keys.simStatus(name)) })));
-  return list.filter(s => Object.keys(s.status).length).sort((a, b) => a.name.localeCompare(b.name));
+  try {
+    // A simulator's status key expires 5 s after it stops, so the list only has running simulators.
+    const names = (await redis.keys(keys.simStatus('*'))).map(k => k.split(':')[1]);
+    const list = await Promise.all(names.map(async name => ({ name, config: await redis.hgetall(keys.simConfig(name)), status: await redis.hgetall(keys.simStatus(name)) })));
+    lastSims = list.filter(s => Object.keys(s.status).length).sort((a, b) => a.name.localeCompare(b.name));
+    return lastSims;
+  } catch {
+    return lastSims.map(s => ({ ...s, stale: true }));
+  }
 }
 app.get('/sims', async () => ({ sims: await sims(), scenarios: SCENARIOS }));
 

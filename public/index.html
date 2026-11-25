@@ -138,6 +138,7 @@ input[type=range] { width: 240px; accent-color: var(--accent); }
 .vest.alarm .hr { color: var(--bad); }
 .badge { font: 600 10.5px var(--mono); padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.06); color: var(--ink-2); letter-spacing: .04em; }
 .badge.bad { background: rgba(255,77,94,.2); color: #ffc2c8; border: 1px solid rgba(255,77,94,.5); } .badge.ok { background: rgba(57,245,160,.14); color: var(--ok); border: 1px solid rgba(57,245,160,.4); }
+.badge.warn { background: rgba(226,166,74,.16); color: var(--warn); border: 1px solid rgba(226,166,74,.45); }
 .alerts { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
 .alert { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 9px; background: rgba(0,0,0,.28); border: 1px solid var(--rule); font-size: 13px; cursor: pointer; }
 .alert.new { animation: flash 2.4s ease-out; }
@@ -218,7 +219,7 @@ details > summary { cursor: pointer; list-style: none; } details > summary::-web
 <main>
   <!-- ======================= LOAD ======================= -->
   <section class="card">
-    <h2>Навантаження <span class="muted" style="text-transform:none;letter-spacing:0">кожен симулятор — окремий парк жилетів: цей ноутбук, Raspberry Pi…</span></h2>
+    <h2>Навантаження <span class="muted" style="text-transform:none;letter-spacing:0">жилети шле Raspberry Pi по Wi-Fi, керування — на пульті парку</span></h2>
     <div id="sims" class="simgrid"></div>
   </section>
 
@@ -423,7 +424,8 @@ function render() {
   const underMin = k.partitions.filter(p => p.isr.length < 2).length, under = k.partitions.filter(p => p.isr.length < p.replicas.length).length;
   const now = ops.at ?? Date.now();
   if (sims[0]?.status.simulated) { simulated = Date.parse(sims[0].status.simulated) / 1000; $('simTime').textContent = new Date(simulated * 1000).toLocaleString('uk-UA'); }
-  $('hdrLoad').textContent = fmt(Math.round(sent)); $('hdrVests').textContent = kfmt(vests);
+  // Live rates travel over Redis pub/sub: without Redis there are no numbers, which is not the same as zero traffic.
+  $('hdrLoad').textContent = !running('redis') && !simStats.some(x => x.packets != null) ? '—' : fmt(Math.round(sent)); $('hdrVests').textContent = kfmt(vests);
 
   // --- pipeline nodes ---
   const offline = sum(sims, x => +x.status.offline);
@@ -711,6 +713,7 @@ function renderSims(sims, simStats) {
       el('div', { className: 'row', style: 'justify-content:space-between' },
         el('span', {}, el('span', { className: 'name', textContent: x.name }), el('span', { className: 'muted', textContent: `  ${st.first}…` })),
         el('span', { className: 'row' },
+          x.stale ? el('span', { className: 'badge warn', textContent: 'Redis недоступний: останні відомі дані' }) : null,
           el('span', { className: 'badge ' + (down ? 'bad' : 'ok'), textContent: down ? 'мережі немає' : 'мережа є' }),
           el('span', { className: 'badge ' + (+st.connected ? 'ok' : 'bad'), textContent: +st.connected ? 'MQTT підключено' : 'немає звʼязку з брокером' }))),
       el('div', { className: 'row', style: 'gap:28px;align-items:baseline' },
@@ -853,7 +856,7 @@ function addAlert(a, fresh) {
 }
 
 // ======================= demo script =======================
-const firstSim = () => ops.sims?.[0]?.name ?? 'laptop';
+const firstSim = () => ops.sims?.[0]?.name ?? 'raspberry';
 const chaos = (s, a) => api(`/chaos/${s}/${a}`, {});
 const STEPS = [
   ['Норма', 'На пульті парку (Raspberry Pi) — 50 жилетів, кожен шле пакет раз на 20 с. Показати конвеєр, SLO зелені, репліка sync.', []],

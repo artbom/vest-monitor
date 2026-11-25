@@ -134,10 +134,12 @@ services:
     user: root
     deploy: { resources: { limits: { cpus: '0.5', memory: 128M } } }
 
+  # The vests run on the Raspberry Pi (see README). This local fleet is a fallback for when the Pi is not on the network:
+  # docker compose -p vest --profile local-sim up -d simulator. Its control panel: http://localhost:18080.
   simulator:
     <<: *app
+    profiles: [local-sim]
     command: ["node", "src/simulator.ts"]
-    # Its control panel: http://localhost:18080 (on the Raspberry Pi the same panel runs on :8080).
     environment: { <<: *app-env, SIM_NAME: laptop, VESTS: "${VESTS:-50}", SPEED: "${SPEED:-1}", CONTROL_URL: "http://localhost:18080" }
     ports: ["18080:8080"]
     depends_on: [ingest]
