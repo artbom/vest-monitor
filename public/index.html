@@ -784,7 +784,10 @@ async function loadHistory() {
 
 async function loadProfile() {
   const p = await api(`/vests/${selected}/profile`);
-  if (p.status !== 200 || !p.pet_id) { $('pDb').textContent = 'жилет не привʼязаний до тварини'; $('pCache').textContent = '—'; $('gOwner').textContent = gdprOwner ? `власник #${gdprOwner}: видалений` : 'власника немає'; return; }
+  // Only VST-0001..0050 have pets and owners in the demo data: for any other vest the GDPR button has nothing to delete.
+  $('gDelete').disabled = !(p.status === 200 && p.owner_id) && !gdprOwner;
+  $('gDelete').title = $('gDelete').disabled ? 'у цього жилета немає власника: відкрийте VST-0001…0050' : '';
+  if (p.status !== 200 || !p.pet_id) { $('pDb').textContent = 'жилет не привʼязаний до тварини'; $('pCache').textContent = '—'; $('gOwner').textContent = gdprOwner ? `власник #${gdprOwner}: видалений` : 'власника немає: тварини й власники є лише у VST-0001…0050'; return; }
   if (document.activeElement !== $('pHr')) $('pHr').value = p.hr_max ?? '';
   if (document.activeElement !== $('pTemp')) $('pTemp').value = p.temp_max ?? '';
   profileVersion = p.version;

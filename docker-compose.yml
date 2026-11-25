@@ -116,8 +116,17 @@ services:
     image: temporalio/temporal:1.9.1
     restart: unless-stopped
     command: [server, start-dev, --ip, 0.0.0.0, --ui-port, "8233", --log-level, warn]
-    ports: ["127.0.0.1:18233:8233", "127.0.0.1:17233:7233"]
+    ports: ["127.0.0.1:17233:7233"]
     deploy: { resources: { limits: { memory: 256M } } }
+
+  # The UI is published through a small proxy: it drops the UI's <meta> CSP, which makes current Chrome block the app
+  # scripts (empty page). See src/temporal-ui.ts.
+  temporal-ui:
+    <<: *app
+    command: ["node", "src/temporal-ui.ts"]
+    ports: ["127.0.0.1:18233:8233"]
+    depends_on: [temporal]
+    deploy: { resources: { limits: { cpus: '0.25', memory: 64M } } }
 
   # Runs the saga steps. Stop it mid-saga from the dashboard: the saga waits, then continues from the same step.
   saga-worker:

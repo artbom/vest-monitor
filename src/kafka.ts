@@ -51,7 +51,7 @@ export async function consume(groupId: string, handle: (packets: Packet[], parti
     autoCommit: false,
     partitionsConsumedConcurrently: concurrency,
     eachBatchAutoResolve: false,
-    eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
+    eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }) => {
       for (let i = 0; i < batch.messages.length; i += CHUNK) {
         const chunk = batch.messages.slice(i, i + CHUNK);
         for (let attempt = 1; ; attempt++) {
@@ -67,7 +67,11 @@ export async function consume(groupId: string, handle: (packets: Packet[], parti
         }
         const last = chunk.at(-1)!.offset;
         resolveOffset(last);
-        await consumer.commitOffsets([{ topic: batch.topic, partition: batch.partition, offset: (BigInt(last) + 1n).toString() }]);
+        // The batch payload's commit goes straight to the coordinator, without consumer.commitOffsets' own retries. When
+        // the group coordinator moves (a broker came back and took the leadership of __consumer_offsets), those retries kept
+        // hitting the old broker for ~30 s; kafkajs looks the coordinator up again only on re-join. Failing at once lets
+        // kafkajs re-join in about a second; the uncommitted chunk is read again and ON CONFLICT drops it.
+        await commitOffsetsIfNecessary({ topics: [{ topic: batch.topic, partitions: [{ partition: batch.partition, offset: (BigInt(last) + 1n).toString() }] }] });
         await heartbeat();
       }
     },

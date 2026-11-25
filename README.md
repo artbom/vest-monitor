@@ -28,7 +28,7 @@ docker compose -p vest up -d --build
 | MQTT (для симулятора на Raspberry Pi) | `<ip ноутбука>:11883` |
 | Redis (для симулятора на Raspberry Pi) | `<ip ноутбука>:16379` |
 | Postgres primary / replica | `postgres://vest:vest@localhost:15432/vest`, `:15433` |
-| Temporal UI (історія саг GDPR) | http://localhost:18233 |
+| Temporal UI (історія саг GDPR) | http://localhost:18233 (через проксі temporal-ui: без нього свіжий Chrome показує порожню сторінку через CSP самого UI) |
 | Temporal gRPC (для `temporal` CLI) | `localhost:17233` |
 
 Зупинити: `docker compose -p vest down`. З даними: `docker compose -p vest down -v`.
